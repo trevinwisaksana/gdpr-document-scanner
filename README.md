@@ -1,12 +1,12 @@
 # GDPR Document Scanner
 
-A FastAPI service that scans documents for personally identifiable information (PII) and GDPR-relevant data. Deployed as a Cloud Run service, triggered on a schedule via Cloud Scheduler.
+A background job that scans documents for personally identifiable information (PII) and GDPR-relevant data. Runs on a schedule via Cloud Scheduler, deployed to Cloud Run.
 
 ## Architecture
 
 ```
 app/
-  main.py        FastAPI entrypoint — CORS, structured JSON logging, lifespan hooks
+  main.py        Entry point — structured JSON logging, lifespan hooks
   process.py     Cron job orchestration — scan files, route findings to handlers
   file_reader.py Text extraction for PDF, DOCX, PPTX, XLSX, CSV, HTML, RTF, and plain text
 detectors/
@@ -14,7 +14,7 @@ detectors/
 tests/           pytest test suite
 ```
 
-**Deployment**: Cloud Build (`cloudbuild.yaml`) builds a Docker image, pushes to Artifact Registry (`us-central1`), and deploys to Cloud Run using the commit SHA as the image tag.
+**Deployment**: Cloud Build (`cloudbuild.yaml`) builds a Docker image, pushes to Artifact Registry (`us-central1`), and deploys to Cloud Run using the commit SHA as the image tag. Cloud Scheduler triggers the job on a cron schedule.
 
 ## Detected PII categories
 
@@ -45,30 +45,16 @@ The regex detector covers 19 categories:
 
 ```bash
 pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
-```
-
-Or with explicit env vars:
-
-```bash
-PORT=8080 ALLOWED_ORIGINS=* uvicorn app.main:app --reload
+python -m app.process
 ```
 
 ## Environment variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `PORT` | `8080` | Port the server listens on |
-| `ALLOWED_ORIGINS` | `*` | Comma-separated CORS origins |
+| `PORT` | `8080` | Port the Cloud Run job listens on |
 
 Copy `.env.example` to `.env` to set these locally.
-
-## API
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/` | Service name and status |
-| `GET` | `/health` | Health check |
 
 ## Cron job / batch processing
 
