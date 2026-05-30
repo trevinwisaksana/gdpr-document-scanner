@@ -1,8 +1,6 @@
-import os
 import requests
+from app.NER_key import NER_KEY
 from app.NER_modes import NER_MODES
-
-SUBSCRIPTION_KEY = os.getenv("NER_SUBSCRIPTION_KEY", "")
 
 # Endpoint for Azure API
 ENDPOINT = f"https://hackathon-gdpr-detection.cognitiveservices.azure.com/"
@@ -42,7 +40,7 @@ def ner_inference(
     }
 
     headers = {
-        "Ocp-Apim-Subscription-Key": SUBSCRIPTION_KEY,
+        "Ocp-Apim-Subscription-Key": NER_KEY,
         "Content-Type": "application/json",
     }
 
@@ -110,7 +108,7 @@ def ner_inference_batch(
 
     url = f"{ENDPOINT}/language/:analyze-text?api-version=2023-04-01"
     headers = {
-        "Ocp-Apim-Subscription-Key": SUBSCRIPTION_KEY,
+        "Ocp-Apim-Subscription-Key": NER_KEY,
         "Content-Type": "application/json",
     }
 
