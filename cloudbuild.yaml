@@ -1,25 +1,73 @@
 steps:
-  - name: "gcr.io/cloud-builders/docker"
+  # ── Build images ───────────────────────────────────────────────────────────
+
+  - id: build-dispatcher
+    name: "gcr.io/cloud-builders/docker"
     args:
       - build
+      - -f
+      - services/dispatcher/Dockerfile
       - -t
-      - us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/$REPO_NAME:$COMMIT_SHA
+      - us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/gdpr-scanner-dispatcher:$COMMIT_SHA
       - .
 
-  - name: "gcr.io/cloud-builders/docker"
+  - id: build-scanner
+    name: "gcr.io/cloud-builders/docker"
+    args:
+      - build
+      - -f
+      - services/scanner/Dockerfile
+      - -t
+      - us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/gdpr-scanner-worker:$COMMIT_SHA
+      - .
+
+  # ── Push images ────────────────────────────────────────────────────────────
+
+  - id: push-dispatcher
+    name: "gcr.io/cloud-builders/docker"
     args:
       - push
-      - us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/$REPO_NAME:$COMMIT_SHA
+      - us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/gdpr-scanner-dispatcher:$COMMIT_SHA
+    waitFor: [build-dispatcher]
 
-  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+  - id: push-scanner
+    name: "gcr.io/cloud-builders/docker"
+    args:
+      - push
+      - us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/gdpr-scanner-worker:$COMMIT_SHA
+    waitFor: [build-scanner]
+
+  # ── Deploy to Cloud Run ────────────────────────────────────────────────────
+
+  - id: deploy-dispatcher
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: gcloud
     args:
       - run
       - deploy
-      - $REPO_NAME
-      - --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/$REPO_NAME:$COMMIT_SHA
+      - gdpr-scanner-dispatcher
+      - --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/gdpr-scanner-dispatcher:$COMMIT_SHA
       - --region=us-central1
       - --allow-unauthenticated
+      - --min-instances=0
+      - --max-instances=1
+    waitFor: [push-dispatcher]
+
+  - id: deploy-scanner
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - gdpr-scanner-worker
+      - --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/gdpr-scanner-worker:$COMMIT_SHA
+      - --region=us-central1
+      - --allow-unauthenticated
+      - --concurrency=5
+      - --min-instances=0
+      - --max-instances=100
+    waitFor: [push-scanner]
 
 images:
-  - us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/$REPO_NAME:$COMMIT_SHA
+  - us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/gdpr-scanner-dispatcher:$COMMIT_SHA
+  - us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/gdpr-scanner-worker:$COMMIT_SHA

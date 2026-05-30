@@ -17,5 +17,6 @@ openpyxl
 beautifulsoup4
 lxml
 striprtf
+google-cloud-storage>=2.16.0
 pytest
 requests
