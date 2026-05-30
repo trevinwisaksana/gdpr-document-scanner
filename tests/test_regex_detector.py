@@ -36,9 +36,7 @@ def assert_finding_shape(f, text):
     assert "start" in f
     assert "end" in f
     assert "snippet" in f
-    assert "confidence" in f
-    assert isinstance(f["confidence"], float)
-    assert 0.0 <= f["confidence"] <= 1.0
+    assert "confidence" not in f
     assert f["start"] >= 0
     assert f["end"] > f["start"]
     assert f["snippet"] == text[f["start"]: f["end"]].strip()
@@ -103,10 +101,6 @@ class TestEmailDetection:
         text = "alice@a.com and bob@b.com"
         snips = snippets_for(detect_pii(text), EMAIL)
         assert len(snips) == 2
-
-    def test_confidence_is_high(self):
-        f = one(detect_pii("hello@world.io"), EMAIL)
-        assert f["confidence"] >= 0.95
 
 
 # ── phone & fax ────────────────────────────────────────────────────────────────
@@ -173,10 +167,6 @@ class TestNameDetection:
     def test_numeric_value_not_detected_as_name(self):
         result = detect_pii("Name: 12345")
         assert NAME not in categories(result)
-
-    def test_confidence(self):
-        f = one(detect_pii("Name: Anna Müller"), NAME)
-        assert f["confidence"] >= 0.85
 
 
 # ── usernames ──────────────────────────────────────────────────────────────────
@@ -338,10 +328,6 @@ class TestIpAddressDetection:
         result = detect_pii("Bad address 256.100.100.1 here")
         assert IP_ADDRESS not in categories(result)
 
-    def test_ipv4_confidence(self):
-        f = one(detect_pii("IP: 10.0.0.1"), IP_ADDRESS)
-        assert f["confidence"] >= 0.95
-
     def test_ipv4_not_triggered_by_version_number(self):
         # "1.2.3" is only 3 octets — should not match
         result = detect_pii("version 1.2.3 released")
@@ -418,10 +404,6 @@ class TestSsnDetection:
         result = detect_pii("SSN: 987-65-4321")
         assert SSN not in categories(result)
 
-    def test_confidence(self):
-        f = one(detect_pii("SSN: 123-45-6789"), SSN)
-        assert f["confidence"] >= 0.9
-
 
 # ── NHS numbers ────────────────────────────────────────────────────────────────
 
@@ -464,10 +446,6 @@ class TestDobDetection:
     def test_birthdate_label(self):
         result = detect_pii("Birthdate: 1972-11-30")
         assert DATE_OF_BIRTH in categories(result)
-
-    def test_confidence(self):
-        f = one(detect_pii("DOB: 04/22/1985"), DATE_OF_BIRTH)
-        assert f["confidence"] >= 0.9
 
 
 # ── RegexDetectorConfig ────────────────────────────────────────────────────────
