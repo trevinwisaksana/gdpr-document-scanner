@@ -131,6 +131,7 @@ def _finding(category: str, start: int, end: int, snippet: str) -> dict | None:
     return {
         "category": category,
         "snippet": snippet,
+        "source": "regex",
     }
 
 

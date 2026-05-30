@@ -46,4 +46,4 @@ if __name__ == "__main__":
         status = f"{len(result.findings)} finding(s)" if result.has_pii else "clean"
         print(f"{result.file_path}  →  {status}")
         for f in result.findings:
-            print(f"  [{f['category']}] {f['snippet']}")
+            print(f"  [{f['category']}] [{f.get('source', '?')}] {f['snippet']}")
