@@ -1,4 +1,4 @@
-"""Admin dashboard (Priority 3): KPIs, live scan controls, and finding breakdowns."""
+"""Admin dashboard: KPIs, live scan controls, and finding breakdowns."""
 from __future__ import annotations
 
 import time
@@ -6,44 +6,59 @@ import time
 import pandas as pd
 import streamlit as st
 
-from scanner import escalate, scan, seed, store
+from scanner import escalate, gdpr, scan, seed, store
 from ui import shell
 
 
 def render(user) -> None:
-    engine = "OpenRouter on" if escalate.is_enabled() else "deterministic"
-    shell.navbar("Admin dashboard", right=f'<span style="color:#6b6459">{engine}</span>')
+    engine = "OpenRouter on" if escalate.is_enabled() else "engine: deterministic"
+    shell.navbar("Admin dashboard", right=engine)
 
     _kpis()
-    _controls()
+    _scan_control()
     _breakdowns()
 
 
 def _kpis() -> None:
     k = store.kpis()
     dur = f"{k['last_scan_duration']:.1f}s" if k["last_scan_duration"] else "—"
-    shell.stat_cards([
-        (str(k["files_scanned"]), "Files scanned", True),
-        (str(k["files_flagged"]), "Files flagged", False),
-        (shell.human_bytes(k["bytes_scanned"]), "Volume scanned", False),
-        (dur, f"Last scan ({k['last_scan_type'] or '—'})", False),
-        (str(k["total_findings"]), "Total findings", False),
+    pct = (
+        f"{k['files_flagged'] / k['files_scanned'] * 100:.1f}% of scanned"
+        if k["files_scanned"] else ""
+    )
+    shell.kpi_grid([
+        {"num": str(k["files_scanned"]),  "label": "Files scanned",   "variant": "accent", "meta": "across all sources"},
+        {"num": str(k["files_flagged"]),  "label": "Files flagged",   "variant": "flag",   "meta": pct},
+        {"num": str(k["total_findings"]), "label": "Total findings",  "variant": "flag"},
+        {"num": shell.human_bytes(k["bytes_scanned"]), "label": "Volume scanned", "meta": ""},
+        {"num": dur, "label": f"Last scan", "meta": k["last_scan_type"] or "—"},
     ])
 
 
-def _controls() -> None:
-    st.markdown('<div class="mg-section">SCAN CONTROL</div>', unsafe_allow_html=True)
-    c1, c2, c3 = st.columns([1, 1, 1])
-    run_full = c1.button("▶ Run Full Scan", use_container_width=True)
-    run_delta = c2.button("⏩ Run Delta Scan", use_container_width=True)
-    reset = c3.button("↻ Reset demo", use_container_width=True)
+def _scan_control() -> None:
+    shell.section_label("Scan control")
+
+    st.markdown(
+        '<div class="ae-scan-panel">'
+        '<div class="ae-scan-info">'
+        '<div class="ae-scan-title">Ready to scan</div>'
+        '<div class="ae-scan-sub">Last full scan completed today. '
+        'Delta scans only re-read changed files.</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    c1, c2, c3 = st.columns([1.2, 1, 1])
+    run_full  = c1.button("▶  Run full scan",  use_container_width=True, type="primary")
+    run_delta = c2.button("⏩  Delta scan",      use_container_width=True)
+    reset     = c3.button("↻  Reset demo",      use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
     if run_full:
         _run("full")
     elif run_delta:
         _run("delta")
     elif reset:
-        with st.spinner("Re-seeding to a clean demo state…"):
+        with st.spinner("Re-seeding demo…"):
             seed.seed(force=True)
         st.success("Demo reset.")
         st.rerun()
@@ -52,13 +67,16 @@ def _controls() -> None:
 def _run(scan_type: str) -> None:
     bar = st.progress(0.0)
     beam = st.empty()
-    beam.markdown('<div class="mg-scan"><div class="mg-scan-beam"></div></div>', unsafe_allow_html=True)
+    beam.markdown(
+        '<div class="ae-scan-beam-wrap"><div class="ae-scan-beam"></div></div>',
+        unsafe_allow_html=True,
+    )
     status = st.empty()
 
     def cb(frac: float, label: str) -> None:
         bar.progress(min(frac, 1.0))
         status.markdown(
-            f'<div class="mg-file-meta">scanning {shell.esc(label)} … {frac*100:.0f}%</div>',
+            f'<div class="ae-kpi-meta">scanning {shell.esc(label)} … {frac*100:.0f}%</div>',
             unsafe_allow_html=True,
         )
 
@@ -78,25 +96,44 @@ def _run(scan_type: str) -> None:
 
 def _breakdowns() -> None:
     col1, col2 = st.columns(2)
+
     with col1:
-        st.markdown('<div class="mg-section">FINDINGS BY CATEGORY</div>', unsafe_allow_html=True)
-        from scanner import gdpr
-        rows = [
-            {"Category": gdpr.label(r["category"]), "Count": r["n"]}
-            for r in store.category_breakdown()
-        ]
+        shell.section_label("Findings by PII type")
+        rows = store.category_breakdown()
         if rows:
-            df = pd.DataFrame(rows).set_index("Category")
-            st.bar_chart(df, color="#0c8275")
+            max_n = max(r["n"] for r in rows) or 1
+            _pri_color = {"high": "#dc2626", "medium": "#d97706", "low": "#7e92a8"}
+            html = ""
+            for r in rows:
+                w = int(r["n"] / max_n * 100)
+                bar_color = _pri_color[gdpr.priority(r["category"])]
+                html += (
+                    f'<div class="ae-hbar-row">'
+                    f'<div class="ae-hbar-label">{shell.esc(gdpr.label(r["category"]))}</div>'
+                    f'<div class="ae-hbar-track"><div class="ae-hbar-fill" style="width:{w}%;background:{bar_color}"></div></div>'
+                    f'<div class="ae-hbar-val">{r["n"]}</div>'
+                    f'</div>'
+                )
+            st.markdown(html, unsafe_allow_html=True)
         else:
             st.caption("No findings yet — run a scan.")
+
     with col2:
-        st.markdown('<div class="mg-section">BY SOURCE</div>', unsafe_allow_html=True)
-        rows = [
-            {"Source": r["source_type"], "Files": r["n_files"], "Findings": r["n_findings"]}
-            for r in store.source_breakdown()
-        ]
+        shell.section_label("By source")
+        rows = store.source_breakdown()
         if rows:
-            st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+            max_files = max(r["n_files"] for r in rows) or 1
+            for r in rows:
+                w = int(r["n_files"] / max_files * 100)
+                st.markdown(
+                    f'<div class="ae-src-card">'
+                    f'<div class="ae-src-top">'
+                    f'<span class="ae-src-name">{shell.esc(r["source_type"])}</span>'
+                    f'<span class="ae-src-stat">{r["n_files"]} files · {r["n_findings"]} findings</span>'
+                    f'</div>'
+                    f'<div class="ae-src-track"><div class="ae-src-fill" style="width:{w}%"></div></div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
         else:
             st.caption("No data yet.")

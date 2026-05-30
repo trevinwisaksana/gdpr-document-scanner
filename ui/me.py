@@ -1,8 +1,7 @@
-"""Employee view (Priority 2): the flagged files this user is responsible for, the
-findings inside each, and the two guided actions. Nothing deletes automatically — the
-user always has the last word."""
+"""Employee view: flagged files this user is responsible for."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import streamlit as st
@@ -10,100 +9,178 @@ import streamlit as st
 from scanner import gdpr, scan, store
 from ui import shell
 
-_ACTION_LABEL = {
-    "open": "",
-    "confirmed_required": "✓ Confirmed required for business",
-    "marked_for_deletion": "🗑 Marked for deletion",
-}
+
+_PRI_ORDER  = {"high": 0, "medium": 1, "low": 2}
+_PRI_EMOJI  = {"high": "🔴", "medium": "🟡", "low": "⚪"}
+_PRI_COLORS = {"high": "#dc2626", "medium": "#d97706", "low": "#7e92a8"}
+_PRI_BG     = {"high": "#fef2f2", "medium": "#fffbeb", "low": "#f4f7fb"}
+_PRI_TEXT   = {"high": "#b91c1c", "medium": "#b45309", "low": "#7e92a8"}
+_PRI_BORDER = {"high": "#fca5a5", "medium": "#fde68a", "low": "#dde3ec"}
+_PRI_LABEL  = {"high": "HIGH RISK", "medium": "MEDIUM RISK", "low": "LOW RISK"}
+
+
+def _file_max_priority(file_id: str) -> str:
+    findings = store.findings_for_file(file_id)
+    open_cats = [fd["category"] for fd in findings if fd["status"] == "open"]
+    if not open_cats:
+        return "low"
+    pris = [gdpr.priority(c) for c in open_cats]
+    if "high" in pris:
+        return "high"
+    if "medium" in pris:
+        return "medium"
+    return "low"
 
 
 def render(user) -> None:
-    shell.navbar(
-        "My files",
-        right=f'<span style="color:#6b6459">{shell.esc(user["name"])}</span>',
-    )
+    shell.navbar("My files", right=shell.esc(user["name"]))
 
-    files = store.files_for_user(user["id"])
-    n_findings = sum(f["n_findings"] for f in files)
-    overdue = sum(1 for f in files if scan.is_past_retention(f["last_modified"]))
-    shell.stat_cards([
-        (str(len(files)), "Flagged files", True),
-        (str(n_findings), "Findings", False),
-        (str(overdue), "Past retention (3y)", False),
-    ])
+    files = list(store.files_for_user(user["id"]))
+    files_with_pri = [(f, _file_max_priority(f["id"])) for f in files]
+    files_with_pri.sort(key=lambda x: (_PRI_ORDER[x[1]], -x[0]["n_findings"]))
 
-    if not files:
-        st.success("You have no flagged files. Nothing to review.")
-        return
+    reviewed = sum(
+        1 for f in files
+        if all(
+            fd["status"] in ("confirmed_required", "marked_for_deletion")
+            for fd in store.findings_for_file(f["id"])
+        )
+    ) if files else 0
+    left = len(files) - reviewed
+    pct = int(reviewed / len(files) * 100) if files else 100
 
     st.markdown(
-        '<div class="mg-file-meta" style="font-family:-apple-system,sans-serif;color:#6b6459;'
-        'font-size:0.8rem;margin:4px 0 14px">You are attributed these files as the direct owner '
-        'or Master of Data. Review each finding and either confirm it is required, or mark the '
-        'file for cleanup. <strong>The tool never deletes anything for you.</strong></div>',
+        f'<div class="ae-strip">'
+        f'<div class="ae-strip-item"><span class="ae-strip-num flag">{len(files)}</span>'
+        f'<span class="ae-strip-lbl">flagged</span></div>'
+        f'<span class="ae-strip-sep">|</span>'
+        f'<div class="ae-strip-item"><span class="ae-strip-num ok">{reviewed}</span>'
+        f'<span class="ae-strip-lbl">reviewed</span></div>'
+        f'<span class="ae-strip-sep">|</span>'
+        f'<div class="ae-strip-item"><span class="ae-strip-num">{left}</span>'
+        f'<span class="ae-strip-lbl">left to review</span></div>'
+        f'<div class="ae-strip-prog"><div class="ae-strip-prog-track">'
+        f'<div class="ae-strip-prog-fill" style="width:{pct}%"></div></div>'
+        f'<span class="ae-strip-prog-pct">{pct}%</span></div></div>',
         unsafe_allow_html=True,
     )
 
-    for f in files:
-        _file_block(f, user)
+    st.markdown(
+        '<div class="ae-page-title">Files that may contain personal data</div>'
+        '<div class="ae-page-sub">These files were flagged automatically by the scanner. '
+        'You decide what happens to each one — nothing is deleted without your action.</div>',
+        unsafe_allow_html=True,
+    )
+
+    if not files:
+        st.success("No flagged files. Nothing to review.")
+        return
+
+    for f, pri in files_with_pri:
+        _file_block(f, user, pri)
 
 
-def _file_block(f, user) -> None:
+def _file_block(f, user, pri: str = "low") -> None:
     name = Path(f["path"]).name
     past = scan.is_past_retention(f["last_modified"])
-    badge = ('<span class="mg-badge-retention">OLDER THAN 3 YEARS</span>'
-             if past else '<span class="mg-badge-ok">within retention</span>')
-    label = f"{name}   —   {f['n_findings']} finding(s)"
+    findings = store.findings_for_file(f["id"])
+    n_open = sum(1 for fd in findings if fd["status"] == "open")
 
+    pri_bg     = _PRI_BG[pri]
+    pri_txt    = _PRI_TEXT[pri]
+    pri_border = _PRI_BORDER[pri]
+    pri_color  = _PRI_COLORS[pri]
+
+    retention_html = (
+        '<span style="color:#b45309;font-size:0.72rem">⏰ Past 3-year retention</span>'
+        if past else ""
+    )
+    review_html = (
+        '<span style="margin-left:auto;font-size:0.72rem;color:#7e92a8">'
+        + str(n_open) + " finding(s) to review</span>"
+    )
+    pill_html = (
+        '<span style="background:' + pri_bg + ';color:' + pri_txt
+        + ';border:1px solid ' + pri_border
+        + ';padding:2px 9px;border-radius:5px;font-size:0.65rem;font-weight:700;'
+        'letter-spacing:0.06em;font-family:monospace">' + _PRI_LABEL[pri] + '</span>'
+    )
+
+    st.markdown(
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;margin-top:8px">'
+        + pill_html + retention_html + review_html + '</div>',
+        unsafe_allow_html=True,
+    )
+
+    label = _PRI_EMOJI[pri] + "  " + name
     with st.expander(label, expanded=False):
-        owner = store.get_user(f["owner_user_id"]) if f["owner_user_id"] else None
-        master = store.get_user(f["master_of_data_user_id"]) if f["master_of_data_user_id"] else None
-        responsible = (f'Direct owner: {owner["name"]}' if owner
-                       else f'Master of Data: {master["name"]}' if master else "Unattributed")
+        size = shell.human_bytes(f["size_bytes"])
+        modified = str(f["last_modified"])[:10] if f["last_modified"] else "—"
+        path_str = f["path"] or ""
+
         st.markdown(
-            f'<div style="margin-bottom:10px">'
-            f'<span class="mg-badge-src">{shell.esc(f["source_type"])}</span> '
-            f'{badge} '
-            f'<span class="mg-file-meta">· {responsible} · '
-            f'{shell.human_bytes(f["size_bytes"])}</span></div>',
+            '<div style="border-left:3px solid ' + pri_color + ';padding:8px 12px;'
+            'background:' + pri_bg + ';border-radius:0 6px 6px 0;margin-bottom:12px;'
+            'font-size:0.75rem;color:#4f6480;font-family:monospace">'
+            + shell.esc(path_str)
+            + '<span style="float:right">' + shell.esc(size)
+            + " · modified " + shell.esc(modified) + "</span></div>",
             unsafe_allow_html=True,
         )
 
-        for fd in store.findings_for_file(f["id"]):
+        shell.section_label("Findings")
+        for fd in findings:
             _finding_card(fd)
 
 
 def _finding_card(fd) -> None:
-    import json
-    color = shell.CATEGORY_COLOR.get(fd["category"], "#0c8275")
+    color = shell.CATEGORY_COLOR.get(fd["category"], "#2f7d8c")
     arts = json.loads(fd["gdpr_articles"])
-    arts_html = "".join(f'<span class="mg-pill art">{a}</span>' for a in arts)
+    arts_html = "".join(
+        '<span class="ae-article">' + a + "</span>" for a in arts
+    )
+
+    conf = fd["confidence"]
+    conf_pct = int(conf * 100)
+    conf_cls = "likely" if conf >= 0.8 else "possible" if conf >= 0.5 else "low"
+
+    pri = gdpr.priority(fd["category"])
+    pri_html = (
+        '<span style="background:' + _PRI_BG[pri] + ';color:' + _PRI_TEXT[pri]
+        + ';border:1px solid ' + _PRI_BORDER[pri]
+        + ';padding:2px 8px;border-radius:5px;font-size:0.65rem;font-weight:700;'
+        'letter-spacing:0.06em;font-family:monospace">' + _PRI_LABEL[pri] + '</span>'
+    )
+
     status_html = ""
     if fd["status"] == "confirmed_required":
-        status_html = '<span class="mg-status-confirmed">✓ REQUIRED FOR BUSINESS</span>'
+        status_html = '<span class="ae-status-confirmed">✓ Required for business</span>'
     elif fd["status"] == "marked_for_deletion":
-        status_html = '<span class="mg-status-delete">🗑 MARKED FOR DELETION</span>'
+        status_html = '<span class="ae-status-delete">🗑 Marked for deletion</span>'
 
     st.markdown(
-        f'<div class="mg-finding" style="border-left-color:{color}">'
-        f'<div class="mg-finding-hdr">'
-        f'<span style="font-size:1rem">{gdpr.icon(fd["category"])}</span>'
-        f'<span class="mg-finding-cat">{shell.esc(gdpr.label(fd["category"]))}</span>'
-        f'<span class="mg-pill conf">{fd["confidence"]*100:.0f}%</span>'
-        f'<span class="mg-pill det">{shell.esc(fd["detector"])}</span>'
-        f'<span style="flex:1"></span>{status_html}</div>'
-        f'<span class="mg-snippet">{shell.esc(fd["snippet"])}</span>'
-        f'<div class="mg-why">{arts_html} &nbsp; {shell.esc(gdpr.WHY.get(fd["category"], ""))}</div>'
-        f'</div>',
+        '<div class="ae-finding" style="border-left:3px solid ' + color + '">'
+        '<div class="ae-finding-hdr">'
+        '<span style="font-size:1rem">' + gdpr.icon(fd["category"]) + "</span>"
+        '<span class="ae-finding-type">' + shell.esc(gdpr.label(fd["category"])) + "</span>"
+        + pri_html
+        + '<div class="ae-conf ' + conf_cls + '">'
+        '<div class="ae-conf-bar"><i style="width:' + str(conf_pct) + '%"></i></div>'
+        + str(conf_pct) + '%</div>'
+        '<span class="ae-badge ae-badge-src">' + shell.esc(fd["detector"]) + "</span>"
+        '<span style="flex:1"></span>' + status_html + "</div>"
+        '<code class="ae-snippet">' + shell.esc(fd["snippet"]) + "</code>"
+        '<div class="ae-why">' + arts_html + " "
+        + shell.esc(gdpr.WHY.get(fd["category"], "")) + "</div></div>",
         unsafe_allow_html=True,
     )
 
-    c1, c2, _ = st.columns([1.2, 1.2, 3])
+    c1, c2, _ = st.columns([1.2, 1.4, 3])
     with c1:
-        if st.button("Required for business", key=f"req_{fd['id']}"):
+        if st.button("Needed for business", key="req_" + fd["id"]):
             store.set_finding_status(fd["id"], "confirmed_required")
             st.rerun()
     with c2:
-        if st.button("Mark for deletion", key=f"del_{fd['id']}"):
+        if st.button("Mark for deletion", key="del_" + fd["id"]):
             store.set_finding_status(fd["id"], "marked_for_deletion")
             st.rerun()

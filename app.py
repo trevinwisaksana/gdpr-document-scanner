@@ -27,21 +27,18 @@ st.session_state.setdefault("view", "login")
 
 
 def _sidebar(user) -> None:
+    initials = shell.avatar_initials(user["name"])
+    color = shell.avatar_color(user["name"])
     with st.sidebar:
         st.markdown(
-            '<div style="display:flex;align-items:center;gap:8px;padding:10px 0 4px">'
-            '<span style="font-size:1rem">🛡️</span>'
-            '<span style="font-size:0.95rem;font-weight:700;color:#1a1814;font-family:-apple-system,sans-serif">'
-            'GDPR Discovery</span></div>',
+            '<div class="ae-side-brand">'
+            '<div class="ae-side-mark">🛡</div>'
+            '<div><div class="ae-side-brand-name">GDPR Discovery</div>'
+            '<div class="ae-side-brand-sub">Data Discovery</div></div>'
+            '</div>',
             unsafe_allow_html=True,
         )
-        st.markdown(
-            f'<div class="mg-file-meta" style="margin:4px 0 8px">Signed in as<br>'
-            f'<strong style="color:#1a1814;font-family:-apple-system,sans-serif">{shell.esc(user["name"])}</strong> '
-            f'· {shell.esc(user["role"])}</div>',
-            unsafe_allow_html=True,
-        )
-        st.markdown('<div class="mg-section">VIEW</div>', unsafe_allow_html=True)
+        st.markdown('<div class="ae-side-group">Workspace</div>', unsafe_allow_html=True)
         options = ["me", "admin"] if user["role"] == "admin" else ["me"]
         labels = {"me": "My files", "admin": "Admin dashboard"}
         view = st.radio(
@@ -50,7 +47,17 @@ def _sidebar(user) -> None:
             label_visibility="collapsed",
         )
         st.session_state.view = view
-        st.markdown('<div class="mg-section">SESSION</div>', unsafe_allow_html=True)
+        st.markdown('<div class="ae-side-group">Session</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;margin-bottom:6px">'
+            f'<div class="ae-avatar" style="background:{color};width:30px;height:30px;font-size:0.65rem">'
+            f'{shell.esc(initials)}</div>'
+            f'<div><div style="font-size:0.78rem;font-weight:600;color:var(--text);font-family:\'IBM Plex Sans\',sans-serif">'
+            f'{shell.esc(user["name"])}</div>'
+            f'<div style="font-size:0.66rem;color:var(--text-faint);font-family:\'IBM Plex Sans\',sans-serif">'
+            f'{shell.esc(user["role"])}</div></div></div>',
+            unsafe_allow_html=True,
+        )
         if st.button("Switch account", use_container_width=True):
             st.session_state.user_id = None
             st.session_state.view = "login"
@@ -69,7 +76,7 @@ else:
         me.render(user)
 
 st.markdown(
-    '<div class="mg-footer">Prototype — TECHon hackathon · Bosch GDPR challenge. '
+    '<div class="ae-footer">Prototype — TECHon hackathon · Bosch GDPR challenge. '
     'Findings assist review; deletion is always a human decision.</div>',
     unsafe_allow_html=True,
 )

@@ -1,4 +1,4 @@
-"""Mock login — pick a seeded user. No passwords; this is a prototype."""
+"""Login — pick a seeded user. Prototype; no passwords."""
 from __future__ import annotations
 
 import streamlit as st
@@ -8,30 +8,51 @@ from ui import shell
 
 
 def render() -> None:
-    shell.navbar("Sign in")
-    st.markdown(
-        '<div style="max-width:460px;margin:6vh auto 0">'
-        '<div class="mg-file-title" style="font-size:1.4rem;margin-bottom:4px">Who are you?</div>'
-        '<div class="mg-file-meta" style="font-family:-apple-system,sans-serif;font-size:0.85rem;color:#6b6459">'
-        'Pick an account to see the GDPR findings you are responsible for. '
-        'Employees see only their own files; the DPO sees the admin dashboard.</div></div>',
-        unsafe_allow_html=True,
-    )
-
     users = store.list_users()
-    if not users:
-        st.warning("No users seeded yet. Run the admin reset or `python -m scanner.seed`.")
-        return
 
-    _, mid, _ = st.columns([1, 2, 1])
+    # center a narrow column
+    _, mid, _ = st.columns([1, 1.6, 1])
     with mid:
-        labels = {u["id"]: f"{u['name']}  ·  {u['role']}" for u in users}
-        choice = st.selectbox(
-            "Account", list(labels.keys()), format_func=lambda i: labels[i],
-            label_visibility="collapsed",
+        st.markdown(
+            '<div class="ae-login-card" style="margin:8vh 0 0">'
+            '<div class="ae-login-mark">🛡</div>'
+            '<div class="ae-login-title">GDPR Data Discovery</div>'
+            '<div class="ae-login-sub">Find and resolve personal data across your file '
+            'sources. Choose an account — employees see only their own flagged files; '
+            'the DPO sees the full estate.</div>'
+            '<div class="ae-login-pick">Select account</div>'
+            '</div>',
+            unsafe_allow_html=True,
         )
-        if st.button("Sign in", use_container_width=True, type="primary"):
-            st.session_state.user_id = choice
-            user = store.get_user(choice)
-            st.session_state.view = "admin" if user["role"] == "admin" else "me"
-            st.rerun()
+
+        if not users:
+            st.warning("No users seeded. Run admin reset.")
+            return
+
+        for u in users:
+            initials = shell.avatar_initials(u["name"])
+            color    = shell.avatar_color(u["name"])
+            role_cls = "admin" if u["role"] == "admin" else ""
+            st.markdown(
+                f'<div class="ae-acct" style="margin-bottom:7px">'
+                f'<div class="ae-avatar" style="background:{color}">{shell.esc(initials)}</div>'
+                f'<div style="flex:1;min-width:0">'
+                f'<div class="ae-acct-name">{shell.esc(u["name"])}</div>'
+                f'<div class="ae-acct-role">'
+                f'<span class="ae-role-tag {role_cls}">{shell.esc(u["role"])}</span>'
+                f'</div></div></div>',
+                unsafe_allow_html=True,
+            )
+            if st.button(
+                f"Sign in as {u['name']}",
+                key=f"login_{u['id']}",
+                use_container_width=True,
+            ):
+                st.session_state.user_id = u["id"]
+                st.session_state.view = "admin" if u["role"] == "admin" else "me"
+                st.rerun()
+
+        st.markdown(
+            '<div class="ae-login-foot">Prototype · TECHon hackathon · Bosch GDPR challenge</div>',
+            unsafe_allow_html=True,
+        )

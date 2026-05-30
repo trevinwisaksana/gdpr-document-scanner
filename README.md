@@ -1,8 +1,109 @@
-# GDPR Document Scanner
+# GDPR Data Discovery
 
-A background job that scans documents for personally identifiable information (PII) and GDPR-relevant data. Runs on a schedule via Cloud Scheduler, deployed to Cloud Run.
+Built for the **TECHon hackathon — Bosch GDPR challenge**.
 
-## Architecture
+---
+
+## 🔗 Live demo
+
+> **TODO: paste your Streamlit Cloud URL here once deployed**
+> e.g. `https://yourname-gdpr-xxxx.streamlit.app`
+
+Once that link is up, teammates just open it in a browser — no setup needed.
+
+---
+
+## Run locally (for development)
+
+Only needed if you want to work on the code. Teammates who just want to see the demo should use the link above.
+
+**You need:** Python 3.10+, Git
+
+```bash
+git pull
+./start.sh
+```
+
+First run takes ~3 minutes (downloads the spaCy NLP model ~750 MB and seeds the database). After that, starts in seconds.
+
+If port is in use: `lsof -ti:8501 | xargs kill` then re-run.
+
+### Demo accounts
+
+Sign in as any of these to explore different views:
+
+| Account | Role | What you see |
+|---|---|---|
+| **Amara Okafor** | Employee | Her flagged files with PII findings, sorted by risk |
+| **Tom Richter** | Employee | No flagged files (shows the empty state) |
+| **Klaus Weber** | Admin (DPO) | Full dashboard — KPIs, scan controls, all findings |
+
+### What the scan actually does
+
+When the app boots (or you press **Run Full Scan** as admin), it reads the real PDF/DOCX files in `sample-data/` and runs three layers of detection:
+
+1. **Text extraction** (`core/ingestion.py`) — `pdfplumber` / `python-docx`
+2. **Regex detectors** (`scanner/detectors.py`) — label-proximity patterns for emails, phones, addresses, passport/ID numbers, names, signatures
+3. **NER via spaCy + Presidio** (`core/pii_detector.py`) — catches person names the regex labels miss
+4. **LLM verification** (`core/llm_fallback.py`) — optional, off by default; set `OPENROUTER_API_KEY` in `.env` to enable
+
+Results are saved to `data/gdpr.db` (SQLite). Delta scans skip unchanged files.
+
+### What's real vs demo data
+
+| Thing | Real or fake? |
+|---|---|
+| PDF/DOCX files scanned | Real files in `sample-data/` |
+| PII findings and snippets shown | Real — extracted from actual file content |
+| 3-year retention flag | Real — compares actual file modification timestamps |
+| NER name detection | Real — spaCy `en_core_web_lg` model |
+| Demo users (Amara, Tom, Klaus) | Fake — seeded for demo purposes |
+| File ownership attribution | Fake — inferred from filename keywords, not real metadata |
+
+### Priority levels
+
+Files and findings are sorted and coloured by risk:
+
+| Priority | PII categories |
+|---|---|
+| 🔴 High | Passport, ID card, Driver's licence, Signature, Photo/video |
+| 🟡 Medium | Home address, Billing/shipping address, Email, Phone, Fax |
+| ⚪ Low | Name, Username/login, Travel history |
+
+### Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `./start.sh` permission denied | Run `chmod +x start.sh` first |
+| Port 8501 already in use | Kill the existing process: `lsof -ti:8501 \| xargs kill` |
+| Blank screen / no demo data | Delete `data/gdpr.db` and restart — forces re-seed |
+| spaCy model missing | Run `venv/bin/python -m spacy download en_core_web_lg` |
+
+---
+
+## Deploying the Streamlit UI
+
+The UI currently runs locally only. To share it with others:
+
+**Option A — Streamlit Community Cloud (easiest, free)**
+1. Push the repo to GitHub
+2. Go to [share.streamlit.io](https://share.streamlit.io) → deploy → point at `app.py`
+3. Everyone gets a public URL, no server needed
+
+**Option B — Cloud Run (same infra as the backend)**
+```bash
+# Build and deploy (adjust project/region as needed)
+gcloud run deploy gdpr-ui \
+  --source . \
+  --command "streamlit,run,app.py" \
+  --args "--server.port=8080,--server.headless=true" \
+  --region us-central1 \
+  --allow-unauthenticated
+```
+
+---
+
+## Backend scanner / NER pipeline
 
 ```
 app/
@@ -16,7 +117,7 @@ tests/           pytest test suite
 
 **Deployment**: Cloud Build (`cloudbuild.yaml`) builds a Docker image, pushes to Artifact Registry (`us-central1`), and deploys to Cloud Run using the commit SHA as the image tag. Cloud Scheduler triggers the job on a cron schedule.
 
-## Detected PII categories
+### Detected PII categories
 
 The regex detector covers 19 categories:
 
@@ -41,24 +142,19 @@ The regex detector covers 19 categories:
 | `nhs_number` | UK NHS numbers |
 | `date_of_birth` | Labelled date-of-birth fields |
 
-## Run locally
+### Run the pipeline directly
 
 ```bash
 pip install -r requirements.txt
 python -m app.process
 ```
 
-## Environment variables
+Or via `run.py` CLI:
+```bash
+python run.py ./sample-data
+```
 
-| Variable | Default | Description |
-|---|---|---|
-| `PORT` | `8080` | Port the Cloud Run job listens on |
-
-Copy `.env.example` to `.env` to set these locally.
-
-## Cron job / batch processing
-
-`app/process.py` is the scheduled-job entry point. Call `run(file_paths)` with a list of file paths to scan them and route findings:
+### Batch processing API
 
 ```python
 from app.process import run, RegexDetectorConfig
@@ -67,25 +163,24 @@ results = run(["report.pdf", "employees.csv"])
 # Each result: ScanResult(file_path, findings=[{category, start, end, snippet}])
 ```
 
-Disable specific detectors via `RegexDetectorConfig`:
-
+Disable specific detectors:
 ```python
 from detectors.regex import RegexDetectorConfig
 config = RegexDetectorConfig(ip_addresses=False, travel=False)
 results = run(file_paths, config=config)
 ```
 
-## Supported file types
+### Supported file types
 
 `PDF`, `DOCX`, `PPTX`, `XLSX` / `XLS`, `CSV`, `HTML`, `RTF`, `TXT`, `MD`, `LOG`, `JSON`, `XML`, `YAML`
 
-## Tests
+### Tests
 
 ```bash
 pytest
 ```
 
-## Deployment
+### Deploy the backend
 
 Triggered automatically by Cloud Build on push. Manual deploy:
 
@@ -93,4 +188,16 @@ Triggered automatically by Cloud Build on push. Manual deploy:
 gcloud builds submit --config cloudbuild.yaml
 ```
 
-The container runs as a non-root `appuser` (see `Dockerfile`). Logs are structured JSON, compatible with Cloud Logging.
+The container runs as non-root `appuser` (see `Dockerfile`). Logs are structured JSON, compatible with Cloud Logging.
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `8080` | Cloud Run port |
+| `OPENROUTER_API_KEY` | — | Enables LLM fallback for low-confidence findings |
+| `SCAN_TARGET_DIR` | `./sample-data` | Directory to scan |
+| `GDPR_DB` | `./data/gdpr.db` | SQLite database path |
+| `RETENTION_YEARS` | `3` | Files older than this flagged as past retention |
+
+Copy `.env.example` to `.env` to set these locally.
