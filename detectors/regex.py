@@ -1,7 +1,7 @@
 """Pure-regex PII detector — no NER or external model dependencies.
 
 Each pattern yields findings as:
-  {"category": str, "start": int, "end": int, "snippet": str, "confidence": float}
+  {"category": str, "start": int, "end": int, "snippet": str}
 
 Category keys match scanner.gdpr constants so findings can be merged with NER-based
 detectors later without remapping.
@@ -158,7 +158,7 @@ _ROLE_STOPWORDS = frozenset({
 
 # ── internal helpers ───────────────────────────────────────────────────────────
 
-def _finding(category: str, start: int, end: int, snippet: str, confidence: float) -> dict | None:
+def _finding(category: str, start: int, end: int, snippet: str) -> dict | None:
     snippet = snippet.strip()
     if not snippet or len(snippet) > 200:
         return None
@@ -169,7 +169,6 @@ def _finding(category: str, start: int, end: int, snippet: str, confidence: floa
         "start": start,
         "end": end,
         "snippet": snippet,
-        "confidence": round(confidence, 3),
     }
 
 
@@ -179,20 +178,20 @@ def _looks_like_role(value: str) -> bool:
 
 
 def _dedupe(findings: list[dict]) -> list[dict]:
-    """Keep the highest-confidence finding per (category, overlapping span)."""
+    """Keep the longest finding per (category, overlapping span)."""
     by_cat: dict[str, list[dict]] = {}
     for f in findings:
         by_cat.setdefault(f["category"], []).append(f)
 
     kept: list[dict] = []
     for group in by_cat.values():
-        group.sort(key=lambda x: (x["start"], -x["confidence"]))
+        group.sort(key=lambda x: x["start"])
         last_end = -1
         for f in group:
             if f["start"] >= last_end:
                 kept.append(f)
                 last_end = f["end"]
-            elif kept and f["confidence"] > kept[-1]["confidence"]:
+            elif f["end"] > last_end:
                 kept[-1] = f
                 last_end = f["end"]
 
@@ -205,7 +204,7 @@ def _dedupe(findings: list[dict]) -> list[dict]:
 def _detect_emails(text: str) -> list[dict]:
     out = []
     for m in _EMAIL.finditer(text):
-        f = _finding(EMAIL, m.start(), m.end(), m.group(), 0.98)
+        f = _finding(EMAIL, m.start(), m.end(), m.group())
         if f:
             out.append(f)
     return out
@@ -216,20 +215,20 @@ def _detect_phones(text: str) -> list[dict]:
     for m in _FAX_LABEL_RE.finditer(text):
         v = m.group("val")
         if re.search(r"\d", v):
-            f = _finding(FAX, m.start("val"), m.end("val"), v, 0.95)
+            f = _finding(FAX, m.start("val"), m.end("val"), v)
             if f:
                 out.append(f)
     for m in _PHONE_LABEL_RE.finditer(text):
         v = m.group("val")
         if re.search(r"\d", v):
-            f = _finding(PHONE, m.start("val"), m.end("val"), v, 0.95)
+            f = _finding(PHONE, m.start("val"), m.end("val"), v)
             if f:
                 out.append(f)
     # free-standing phone numbers
     for m in _PHONE.finditer(text):
         s = m.group().strip()
         if len(re.sub(r"\D", "", s)) >= 7:
-            f = _finding(PHONE, m.start(), m.end(), s, 0.75)
+            f = _finding(PHONE, m.start(), m.end(), s)
             if f:
                 out.append(f)
     return out
@@ -246,7 +245,7 @@ def _detect_names(text: str) -> list[dict]:
         v = m.group("val").strip()
         if "@" in v or re.search(r"\d", v) or _looks_like_role(v):
             continue
-        f = _finding(NAME, m.start("val"), m.end("val"), v, 0.9)
+        f = _finding(NAME, m.start("val"), m.end("val"), v)
         if f:
             out.append(f)
     return out
@@ -255,11 +254,11 @@ def _detect_names(text: str) -> list[dict]:
 def _detect_usernames(text: str) -> list[dict]:
     out = []
     for m in _USERNAME_RE.finditer(text):
-        f = _finding(USERNAME, m.start("val"), m.end("val"), m.group("val"), 0.9)
+        f = _finding(USERNAME, m.start("val"), m.end("val"), m.group("val"))
         if f:
             out.append(f)
     for m in _EMP_ID_RE.finditer(text):
-        f = _finding(USERNAME, m.start(), m.end(), m.group(), 0.85)
+        f = _finding(USERNAME, m.start(), m.end(), m.group())
         if f:
             out.append(f)
     return out
@@ -268,7 +267,7 @@ def _detect_usernames(text: str) -> list[dict]:
 def _detect_signatures(text: str) -> list[dict]:
     out = []
     for m in _SIGNATURE_RE.finditer(text):
-        f = _finding(SIGNATURE, m.start("val"), m.end("val"), m.group("val"), 0.9)
+        f = _finding(SIGNATURE, m.start("val"), m.end("val"), m.group("val"))
         if f:
             out.append(f)
     return out
@@ -277,7 +276,7 @@ def _detect_signatures(text: str) -> list[dict]:
 def _detect_photo_video(text: str) -> list[dict]:
     out = []
     for m in _PHOTO_VIDEO_RE.finditer(text):
-        f = _finding(PHOTO_VIDEO, m.start(), m.end(), m.group(), 0.8)
+        f = _finding(PHOTO_VIDEO, m.start(), m.end(), m.group())
         if f:
             out.append(f)
     return out
@@ -286,16 +285,16 @@ def _detect_photo_video(text: str) -> list[dict]:
 def _detect_addresses(text: str) -> list[dict]:
     out = []
     for m in _BILLING_RE.finditer(text):
-        f = _finding(BILLING_SHIPPING, m.start("val"), m.end("val"), m.group("val"), 0.9)
+        f = _finding(BILLING_SHIPPING, m.start("val"), m.end("val"), m.group("val"))
         if f:
             out.append(f)
     for m in _ADDRESS_RE.finditer(text):
-        f = _finding(HOME_ADDRESS, m.start("val"), m.end("val"), m.group("val"), 0.88)
+        f = _finding(HOME_ADDRESS, m.start("val"), m.end("val"), m.group("val"))
         if f:
             out.append(f)
     for rx in (_STREET_RE, _POSTAL_DE):
         for m in rx.finditer(text):
-            f = _finding(HOME_ADDRESS, m.start(), m.end(), m.group(), 0.7)
+            f = _finding(HOME_ADDRESS, m.start(), m.end(), m.group())
             if f:
                 out.append(f)
     return out
@@ -306,15 +305,15 @@ _STREET_RE = _STREET
 
 def _detect_id_documents(text: str) -> list[dict]:
     out = []
-    for pattern, category, conf in (
-        (_PASSPORT_RE, PASSPORT, 0.95),
-        (_DRIVERS_RE, DRIVERS_LICENSE, 0.95),
-        (_ID_CARD_RE, ID_CARD, 0.9),
+    for pattern, category in (
+        (_PASSPORT_RE, PASSPORT),
+        (_DRIVERS_RE, DRIVERS_LICENSE),
+        (_ID_CARD_RE, ID_CARD),
     ):
         for m in pattern.finditer(text):
             v = m.group("val")
             if re.search(r"\d", v):
-                f = _finding(category, m.start("val"), m.end("val"), v, conf)
+                f = _finding(category, m.start("val"), m.end("val"), v)
                 if f:
                     out.append(f)
     return out
@@ -323,7 +322,7 @@ def _detect_id_documents(text: str) -> list[dict]:
 def _detect_travel(text: str) -> list[dict]:
     out = []
     for m in _TRAVEL_RE.finditer(text):
-        f = _finding(TRAVEL_HISTORY, m.start(), m.end(), m.group(), 0.7)
+        f = _finding(TRAVEL_HISTORY, m.start(), m.end(), m.group())
         if f:
             out.append(f)
     return out
@@ -332,11 +331,11 @@ def _detect_travel(text: str) -> list[dict]:
 def _detect_ip_addresses(text: str) -> list[dict]:
     out = []
     for m in _IPV4.finditer(text):
-        f = _finding(IP_ADDRESS, m.start(), m.end(), m.group(), 0.97)
+        f = _finding(IP_ADDRESS, m.start(), m.end(), m.group())
         if f:
             out.append(f)
     for m in _IPV6.finditer(text):
-        f = _finding(IP_ADDRESS, m.start(), m.end(), m.group(), 0.95)
+        f = _finding(IP_ADDRESS, m.start(), m.end(), m.group())
         if f:
             out.append(f)
     return out
@@ -347,7 +346,7 @@ def _detect_credit_cards(text: str) -> list[dict]:
     for m in _CREDIT_CARD.finditer(text):
         digits = re.sub(r"\D", "", m.group())
         if len(digits) in (13, 15, 16):
-            f = _finding(CREDIT_CARD, m.start(), m.end(), m.group(), 0.9)
+            f = _finding(CREDIT_CARD, m.start(), m.end(), m.group())
             if f:
                 out.append(f)
     return out
@@ -359,7 +358,7 @@ def _detect_iban(text: str) -> list[dict]:
         v = m.group()
         # IBAN must start with a valid ISO country code (2 letters) then 2 check digits
         if re.match(r"^[A-Z]{2}\d{2}", v) and len(v) >= 15:
-            f = _finding(IBAN, m.start(), m.end(), v, 0.85)
+            f = _finding(IBAN, m.start(), m.end(), v)
             if f:
                 out.append(f)
     return out
@@ -368,7 +367,7 @@ def _detect_iban(text: str) -> list[dict]:
 def _detect_ssn(text: str) -> list[dict]:
     out = []
     for m in _SSN.finditer(text):
-        f = _finding(SSN, m.start(), m.end(), m.group(), 0.92)
+        f = _finding(SSN, m.start(), m.end(), m.group())
         if f:
             out.append(f)
     return out
@@ -380,7 +379,7 @@ def _detect_nhs(text: str) -> list[dict]:
         v = m.group()
         # Exclude patterns already matched as SSN (different separator layout)
         if not re.fullmatch(r"\d{3}[\s\-]\d{2}[\s\-]\d{4}", v):
-            f = _finding(NHS_NUMBER, m.start(), m.end(), v, 0.8)
+            f = _finding(NHS_NUMBER, m.start(), m.end(), v)
             if f:
                 out.append(f)
     return out
@@ -389,7 +388,7 @@ def _detect_nhs(text: str) -> list[dict]:
 def _detect_dob(text: str) -> list[dict]:
     out = []
     for m in _DOB_LABEL.finditer(text):
-        f = _finding(DATE_OF_BIRTH, m.start("val"), m.end("val"), m.group("val"), 0.95)
+        f = _finding(DATE_OF_BIRTH, m.start("val"), m.end("val"), m.group("val"))
         if f:
             out.append(f)
     return out
@@ -422,11 +421,10 @@ def detect_pii(text: str, config: RegexDetectorConfig | None = None) -> list[dic
 
     Each finding:
         {
-            "category":   str,    # PII type (e.g. "email", "phone")
-            "start":      int,    # start char offset in text
-            "end":        int,    # end char offset in text
-            "snippet":    str,    # matched text
-            "confidence": float,  # 0.0–1.0
+            "category": str,  # PII type (e.g. "email", "phone")
+            "start":    int,  # start char offset in text
+            "end":      int,  # end char offset in text
+            "snippet":  str,  # matched text
         }
     """
     if not text or not text.strip():
