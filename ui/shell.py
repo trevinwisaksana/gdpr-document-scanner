@@ -1,5 +1,5 @@
-"""Shared visual shell — skeuomorphic teal/cream CSS lifted from the original MosaicGuard
-app, plus small render helpers reused across the login / me / admin views."""
+"""Shared visual shell — skeuomorphic teal/cream CSS, plus small render helpers
+reused across the login / me / admin views."""
 from __future__ import annotations
 
 import html as _html
