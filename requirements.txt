@@ -2,3 +2,11 @@ fastapi
 uvicorn[standard]
 python-dotenv
 pydantic-settings
+pymupdf
+python-docx
+python-pptx
+openpyxl
+beautifulsoup4
+lxml
+striprtf
+pytest
