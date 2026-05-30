@@ -140,25 +140,14 @@ def _looks_like_role(value: str) -> bool:
 
 
 def _dedupe(findings: list[dict]) -> list[dict]:
-    """Keep the longest finding per (category, overlapping span)."""
-    by_cat: dict[str, list[dict]] = {}
+    seen: set[tuple] = set()
+    out: list[dict] = []
     for f in findings:
-        by_cat.setdefault(f["category"], []).append(f)
-
-    kept: list[dict] = []
-    for group in by_cat.values():
-        group.sort(key=lambda x: x["start"])
-        last_end = -1
-        for f in group:
-            if f["start"] >= last_end:
-                kept.append(f)
-                last_end = f["end"]
-            elif f["end"] > last_end:
-                kept[-1] = f
-                last_end = f["end"]
-
-    kept.sort(key=lambda x: (x["start"], x["category"]))
-    return kept
+        key = (f["category"], f["snippet"])
+        if key not in seen:
+            seen.add(key)
+            out.append(f)
+    return out
 
 
 # ── per-category detector functions ───────────────────────────────────────────
