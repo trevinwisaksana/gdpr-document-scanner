@@ -166,8 +166,6 @@ def _finding(category: str, start: int, end: int, snippet: str) -> dict | None:
         return None
     return {
         "category": category,
-        "start": start,
-        "end": end,
         "snippet": snippet,
     }
 

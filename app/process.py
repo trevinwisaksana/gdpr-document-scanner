@@ -13,9 +13,39 @@ from pathlib import Path
 from typing import Any
 
 from app.file_reader import extract_text
-from detectors.regex import RegexDetectorConfig, detect_pii
+from app.NER import ner_inference
+from detectors.regex import (
+    RegexDetectorConfig, detect_pii,
+    NAME, EMAIL, PHONE, HOME_ADDRESS, IP_ADDRESS,
+)
 
 logger = logging.getLogger(__name__)
+
+# Maps Azure Language NER categories to the shared PII category schema.
+# Categories absent from this map are not considered GDPR-relevant PII.
+_NER_CATEGORY_MAP: dict[str, str] = {
+    "Person": NAME,
+    "PersonType": NAME,
+    "Email": EMAIL,
+    "PhoneNumber": PHONE,
+    "Address": HOME_ADDRESS,
+    "IPAddress": IP_ADDRESS,
+}
+
+
+def _ner_to_findings(entities: list[dict]) -> list[dict]:
+    findings = []
+    for ent in entities:
+        category = _NER_CATEGORY_MAP.get(ent["category"])
+        if category is None:
+            continue
+        findings.append({
+            "category": category,
+            "snippet": ent["text"],
+            "confidence": ent.get("confidence"),
+            "source": "ner",
+        })
+    return findings
 
 
 @dataclass
@@ -31,9 +61,17 @@ class ScanResult:
 # ── use-case ──────────────────────────────────────────────────────────────────
 
 def scan_document(file_path: str | Path, config: RegexDetectorConfig | None = None) -> ScanResult:
-    """Extract text from *file_path* and run the regex PII detector over it."""
+    """Extract text from *file_path*, run the regex PII detector, and fall back to NER if nothing is found."""
     text = extract_text(file_path)
     findings = detect_pii(text, config)
+
+    if not findings:
+        try:
+            ner_entities = ner_inference(text)
+            findings = _ner_to_findings(ner_entities)
+        except Exception:
+            logger.warning("NER fallback failed", extra={"file": str(file_path)})
+
     return ScanResult(file_path=str(file_path), findings=findings)
 
 

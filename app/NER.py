@@ -1,11 +1,9 @@
+import os
 import requests
 import json
 
-
-# Endpoint (copy from the “Keys and Endpoint” page)
-ENDPOINT = f"https://hackathon-gdpr-detection.cognitiveservices.azure.com/"
-# API key for the Language service
-from NER_key import SUBSCRIPTION_KEY
+ENDPOINT = “https://hackathon-gdpr-detection.cognitiveservices.azure.com/”
+SUBSCRIPTION_KEY = os.getenv(“NER_SUBSCRIPTION_KEY”, “”)
 
 def ner_inference(text: str, mode: int =0):
     """
@@ -51,7 +49,7 @@ def ner_inference(text: str, mode: int =0):
         {
             "text": ent["text"],
             "category": ent["category"],
-            "confidence": round(ent["confidenceScore"], 3)
+            "confidence": round(ent["confidenceScore"], 3),
         }
         for ent in entities
     ]
