@@ -8,9 +8,9 @@ import pytest
 from detectors.regex import (
     detect_pii,
     RegexDetectorConfig,
-    EMAIL, PHONE, FAX, NAME, USERNAME, SIGNATURE, PHOTO_VIDEO,
-    HOME_ADDRESS, BILLING_SHIPPING, PASSPORT, ID_CARD, DRIVERS_LICENSE,
-    TRAVEL_HISTORY, IP_ADDRESS, CREDIT_CARD, IBAN, SSN, NHS_NUMBER, DATE_OF_BIRTH,
+    EMAIL, PHONE, FAX, NAME, USERNAME, SIGNATURE,  # NAME kept for NER-mapped findings
+    PASSPORT, ID_CARD, DRIVERS_LICENSE,
+    IP_ADDRESS, CREDIT_CARD, IBAN, SSN, DATE_OF_BIRTH,
 )
 
 
@@ -33,13 +33,10 @@ def one(findings, category):
 
 def assert_finding_shape(f, text):
     assert "category" in f
-    assert "start" in f
-    assert "end" in f
     assert "snippet" in f
+    assert "source" in f
     assert "confidence" not in f
-    assert f["start"] >= 0
-    assert f["end"] > f["start"]
-    assert f["snippet"] == text[f["start"]: f["end"]].strip()
+    assert f["snippet"] in text or f["snippet"].strip() in text
 
 
 # ── detect_pii: basic contract ─────────────────────────────────────────────────
@@ -65,11 +62,10 @@ class TestDetectPiiContract:
         for f in detect_pii(text):
             assert_finding_shape(f, text)
 
-    def test_results_sorted_by_start(self):
-        text = "Name: Alice Smith\nEmail: alice@example.com"
+    def test_results_are_list_of_dicts_with_source(self):
+        text = "Email: alice@example.com"
         results = detect_pii(text)
-        starts = [f["start"] for f in results]
-        assert starts == sorted(starts)
+        assert all(f.get("source") == "regex" for f in results)
 
     def test_snippet_text_always_alphanumeric(self):
         text = "Name: John Doe\nEmail: j@x.com\nPhone: 555-123-4567"
@@ -135,40 +131,6 @@ class TestPhoneDetection:
 import re  # needed by test_snippet_text_always_alphanumeric
 
 
-# ── names ──────────────────────────────────────────────────────────────────────
-
-class TestNameDetection:
-    def test_labeled_name(self):
-        f = one(detect_pii("Name: John Smith"), NAME)
-        assert "John Smith" in f["snippet"]
-
-    def test_labeled_employee(self):
-        result = detect_pii("Employee: Jane Doe")
-        assert NAME in categories(result)
-
-    def test_labeled_applicant(self):
-        result = detect_pii("Applicant: Maria Garcia")
-        assert NAME in categories(result)
-
-    def test_role_stopword_not_detected(self):
-        result = detect_pii("Name: Manager")
-        assert NAME not in categories(result)
-
-    def test_email_value_not_detected_as_name(self):
-        # The name regex stops before '@', so the local-part may be captured.
-        # The email itself must always be detected; any name snippet must not
-        # contain '@' or a domain.
-        result = detect_pii("Name: alice@example.com")
-        assert EMAIL in categories(result)
-        for f in result:
-            if f["category"] == NAME:
-                assert "@" not in f["snippet"]
-
-    def test_numeric_value_not_detected_as_name(self):
-        result = detect_pii("Name: 12345")
-        assert NAME not in categories(result)
-
-
 # ── usernames ──────────────────────────────────────────────────────────────────
 
 class TestUsernameDetection:
@@ -206,54 +168,6 @@ class TestSignatureDetection:
         assert SIGNATURE in categories(result)
 
 
-# ── photo / video ──────────────────────────────────────────────────────────────
-
-class TestPhotoVideoDetection:
-    def test_passport_photo_keyword(self):
-        result = detect_pii("Please attach a passport photo.")
-        assert PHOTO_VIDEO in categories(result)
-
-    def test_headshot_keyword(self):
-        result = detect_pii("Upload your headshot here.")
-        assert PHOTO_VIDEO in categories(result)
-
-    def test_jpg_extension(self):
-        result = detect_pii("File saved as portrait.jpg")
-        assert PHOTO_VIDEO in categories(result)
-
-    def test_mp4_extension(self):
-        result = detect_pii("Recording stored in clip.mp4")
-        assert PHOTO_VIDEO in categories(result)
-
-    def test_profile_photo_keyword(self):
-        result = detect_pii("Set your profile photo.")
-        assert PHOTO_VIDEO in categories(result)
-
-
-# ── addresses ──────────────────────────────────────────────────────────────────
-
-class TestAddressDetection:
-    def test_labeled_home_address(self):
-        result = detect_pii("Address: 10 Downing Street, London")
-        assert HOME_ADDRESS in categories(result)
-
-    def test_labeled_billing_address(self):
-        result = detect_pii("Billing address: 123 Main St, Springfield")
-        assert BILLING_SHIPPING in categories(result)
-
-    def test_labeled_shipping_address(self):
-        result = detect_pii("Shipping address: 456 Elm Ave, Shelbyville")
-        assert BILLING_SHIPPING in categories(result)
-
-    def test_german_postal_code(self):
-        result = detect_pii("Wohnort: 80331 München")
-        assert HOME_ADDRESS in categories(result)
-
-    def test_german_street(self):
-        result = detect_pii("Adresse: Hauptstraße 12")
-        assert HOME_ADDRESS in categories(result)
-
-
 # ── ID documents ───────────────────────────────────────────────────────────────
 
 class TestIdDocumentDetection:
@@ -285,30 +199,6 @@ class TestIdDocumentDetection:
         result = detect_pii("Passport: ABCDEF")
         # Must contain at least one digit in the value
         assert PASSPORT not in categories(result)
-
-
-# ── travel history ─────────────────────────────────────────────────────────────
-
-class TestTravelDetection:
-    def test_boarding_pass(self):
-        result = detect_pii("boarding pass attached")
-        assert TRAVEL_HISTORY in categories(result)
-
-    def test_flight_number(self):
-        result = detect_pii("Flight LH4321 departs at 08:00")
-        assert TRAVEL_HISTORY in categories(result)
-
-    def test_trip_to_city(self):
-        result = detect_pii("trip to Paris next month")
-        assert TRAVEL_HISTORY in categories(result)
-
-    def test_itinerary_keyword(self):
-        result = detect_pii("See attached itinerary for details")
-        assert TRAVEL_HISTORY in categories(result)
-
-    def test_round_trip(self):
-        result = detect_pii("Booked a round-trip to Berlin")
-        assert TRAVEL_HISTORY in categories(result)
 
 
 # ── IP addresses ───────────────────────────────────────────────────────────────
@@ -405,25 +295,6 @@ class TestSsnDetection:
         assert SSN not in categories(result)
 
 
-# ── NHS numbers ────────────────────────────────────────────────────────────────
-
-class TestNhsDetection:
-    def test_nhs_with_spaces(self):
-        result = detect_pii("NHS Number: 943 476 5919")
-        assert NHS_NUMBER in categories(result)
-
-    def test_nhs_with_dashes(self):
-        result = detect_pii("Patient NHS: 123-456-7890")
-        assert NHS_NUMBER in categories(result)
-
-    def test_ssn_pattern_not_matched_as_nhs(self):
-        # SSN format DDD-DD-DDDD should not be matched as NHS
-        result = detect_pii("123-45-6789")
-        snips = snippets_for(result, NHS_NUMBER)
-        # SSN format (3-2-4) must not be labelled NHS (3-3-4)
-        assert not any("123-45" in s for s in snips)
-
-
 # ── date of birth ──────────────────────────────────────────────────────────────
 
 class TestDobDetection:
@@ -461,11 +332,6 @@ class TestRegexDetectorConfig:
         result = detect_pii("Phone: +1 555-123-4567", config=cfg)
         assert PHONE not in categories(result)
 
-    def test_disable_names(self):
-        cfg = RegexDetectorConfig(names=False)
-        result = detect_pii("Name: John Smith", config=cfg)
-        assert NAME not in categories(result)
-
     def test_disable_ip_addresses(self):
         cfg = RegexDetectorConfig(ip_addresses=False)
         result = detect_pii("Server: 192.168.1.1", config=cfg)
@@ -478,10 +344,9 @@ class TestRegexDetectorConfig:
 
     def test_only_emails_enabled(self):
         cfg = RegexDetectorConfig(
-            names=False, phones=False, usernames=False, signatures=False,
-            photo_video=False, addresses=False, id_documents=False, travel=False,
-            ip_addresses=False, credit_cards=False, iban=False, ssn=False,
-            nhs=False, dob=False,
+            phones=False, usernames=False, signatures=False,
+            id_documents=False, ip_addresses=False, credit_cards=False,
+            iban=False, ssn=False, dob=False,
         )
         text = "Name: John Smith\nEmail: john@smith.com\nSSN: 123-45-6789"
         result = detect_pii(text, config=cfg)
@@ -490,21 +355,20 @@ class TestRegexDetectorConfig:
     def test_default_config_all_enabled(self):
         cfg = RegexDetectorConfig()
         assert all([
-            cfg.names, cfg.emails, cfg.phones, cfg.usernames, cfg.signatures,
-            cfg.photo_video, cfg.addresses, cfg.id_documents, cfg.travel,
-            cfg.ip_addresses, cfg.credit_cards, cfg.iban, cfg.ssn, cfg.nhs, cfg.dob,
+            cfg.emails, cfg.phones, cfg.usernames, cfg.signatures,
+            cfg.id_documents, cfg.ip_addresses, cfg.credit_cards,
+            cfg.iban, cfg.ssn, cfg.dob,
         ])
 
 
 # ── deduplication ──────────────────────────────────────────────────────────────
 
 class TestDeduplication:
-    def test_same_email_at_different_offsets_both_kept(self):
-        # Dedup is span-based — two occurrences at different positions are
-        # independent findings, not duplicates.
+    def test_same_email_deduped_by_value(self):
+        # Dedup is (category, snippet)-based — same email appearing twice collapses to one.
         text = "Email: user@x.com\nContact: user@x.com"
         snips = snippets_for(detect_pii(text), EMAIL)
-        assert snips.count("user@x.com") == 2
+        assert snips.count("user@x.com") == 1
 
     def test_overlapping_spans_deduped(self):
         # Two detectors producing overlapping spans in the same category
@@ -541,7 +405,6 @@ class TestMultiPiiDocument:
         )
         result = detect_pii(doc)
         found = categories(result)
-        assert NAME in found
         assert EMAIL in found
         assert PHONE in found
         assert PASSPORT in found

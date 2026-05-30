@@ -18,3 +18,4 @@ beautifulsoup4
 lxml
 striprtf
 pytest
+requests
