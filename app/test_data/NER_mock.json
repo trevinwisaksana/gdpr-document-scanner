@@ -1,0 +1,32 @@
+[
+  {
+    "text": "Acme Ltd",
+    "category": "Organization",
+    "confidence": 1.0
+  },
+  {
+    "text": "John Doe",
+    "category": "Person",
+    "confidence": 0.99
+  },
+  {
+    "text": "john.doe@example.com",
+    "category": "Email",
+    "confidence": 0.8
+  },
+  {
+    "text": "three years",
+    "category": "DateTime",
+    "confidence": 1.0
+  },
+  {
+    "text": "Processing",
+    "category": "Event",
+    "confidence": 0.93
+  },
+  {
+    "text": "consent",
+    "category": "Event",
+    "confidence": 0.44
+  }
+]
