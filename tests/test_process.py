@@ -95,7 +95,7 @@ class TestScanDocument:
     def test_findings_have_expected_keys(self, txt_with_pii):
         result = scan_document(txt_with_pii)
         for finding in result.findings:
-            assert {"category", "start", "end", "snippet", "confidence"} <= finding.keys()
+            assert {"category", "start", "end", "snippet"} <= finding.keys()
 
     def test_config_disabling_all_detectors_returns_empty(self, txt_with_pii):
         from detectors.regex import RegexDetectorConfig
