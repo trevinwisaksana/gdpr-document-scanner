@@ -8,18 +8,30 @@ is invoked (stub — wire in your own logic).
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from app.file_reader import extract_text
 from app.NER import ner_inference
+from app.llm_fallback import llm_detect_pii, llm_verify_findings
 from detectors.regex import (
     RegexDetectorConfig, detect_pii,
     NAME, EMAIL, PHONE, IP_ADDRESS,
 )
 
 logger = logging.getLogger(__name__)
+
+# Matches lines like "Owner: Team Lead" or "Date: 05 May 2026".
+# The label (before the colon) is never PII — strip it so NER only sees values.
+_FORM_LABEL_RE = re.compile(r"^[^:\n]{1,40}:\s*", re.MULTILINE)
+
+
+def _strip_form_labels(text: str) -> str:
+    """Remove 'Label: ' prefixes from structured form-field lines."""
+    return _FORM_LABEL_RE.sub("", text)
+
 
 # Maps Azure Language NER categories to the shared PII category schema.
 # Categories absent from this map are not considered GDPR-relevant PII.
@@ -67,10 +79,17 @@ def scan_document(file_path: str | Path, config: RegexDetectorConfig | None = No
 
     if not findings:
         try:
-            ner_entities = ner_inference(text)
-            findings = _ner_to_findings(ner_entities)
+            ner_entities = ner_inference(_strip_form_labels(text))
+            ner_findings = _ner_to_findings(ner_entities)
+            high_conf = [f for f in ner_findings if (f.get("confidence") or 0) >= 0.9]
+            low_conf  = [f for f in ner_findings if (f.get("confidence") or 0) <  0.9]
+            verified  = llm_verify_findings(text, low_conf) if low_conf else []
+            findings  = high_conf + verified
         except Exception:
             logger.warning("NER fallback failed", extra={"file": str(file_path)})
+
+    if not findings:
+        findings = llm_detect_pii(text)
 
     return ScanResult(file_path=str(file_path), findings=findings)
 
