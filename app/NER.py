@@ -1,6 +1,8 @@
+import os
 import requests
-from NER_key import SUBSCRIPTION_KEY
-from NER_modes import NER_MODES
+from app.NER_modes import NER_MODES
+
+SUBSCRIPTION_KEY = os.getenv("NER_SUBSCRIPTION_KEY", "")
 
 # Endpoint for Azure API
 ENDPOINT = f"https://hackathon-gdpr-detection.cognitiveservices.azure.com/"

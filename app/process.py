@@ -16,7 +16,7 @@ from app.file_reader import extract_text
 from app.NER import ner_inference
 from detectors.regex import (
     RegexDetectorConfig, detect_pii,
-    NAME, EMAIL, PHONE, HOME_ADDRESS, IP_ADDRESS,
+    NAME, EMAIL, PHONE, IP_ADDRESS,
 )
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ _NER_CATEGORY_MAP: dict[str, str] = {
     "PersonType": NAME,
     "Email": EMAIL,
     "PhoneNumber": PHONE,
-    "Address": HOME_ADDRESS,
+    "Address": "home_address",
     "IPAddress": IP_ADDRESS,
 }
 

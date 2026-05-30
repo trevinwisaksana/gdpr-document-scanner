@@ -17,22 +17,17 @@ NAME = "name"
 USERNAME = "username"
 EMAIL = "email"
 SIGNATURE = "signature"
-PHOTO_VIDEO = "photo_video"
 PHONE = "phone"
 FAX = "fax"
-HOME_ADDRESS = "home_address"
-BILLING_SHIPPING = "billing_shipping_address"
 PASSPORT = "passport"
 ID_CARD = "id_card"
 DRIVERS_LICENSE = "drivers_license"
-TRAVEL_HISTORY = "travel_history"
 # Extra structured PII not in the 13-category list
 IP_ADDRESS = "ip_address"
 CREDIT_CARD = "credit_card"
 IBAN = "iban"
 SSN = "ssn"
 DATE_OF_BIRTH = "date_of_birth"
-NHS_NUMBER = "nhs_number"
 
 # ── compiled patterns ──────────────────────────────────────────────────────────
 
@@ -45,15 +40,6 @@ _PHONE = re.compile(
     r"(?:\(?\d{2,5}\)?[\s.\-/]?){2,5}"
     r"\d{2,}"
     r"(?!\w)"
-)
-
-# German postal + city
-_POSTAL_DE = re.compile(r"\b\d{5}[ \t]+[A-ZÄÖÜ][a-zäöüß]+")
-# Street names (German & generic)
-_STREET = re.compile(
-    r"\b[A-ZÄÖÜ][a-zäöüß.]+(?:str\.?|straße|gasse|weg|allee|platz|road|rd\.?|"
-    r"street|st\.?|avenue|ave\.?|lane|ln\.?|drive|dr\.?|boulevard|blvd\.?)\.?\s*\d+",
-    re.I,
 )
 
 # IPv4
@@ -83,9 +69,6 @@ _IBAN = re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{1,30}\b")
 # US SSN: 000-00-0000 or 9 digits
 _SSN = re.compile(r"(?<!\d)(?!000|666|9\d{2})\d{3}[\s\-]\d{2}[\s\-]\d{4}(?!\d)")
 
-# UK NHS: 3-3-4 digit grouping
-_NHS = re.compile(r"(?<!\d)\d{3}[\s\-]\d{3}[\s\-]\d{4}(?!\d)")
-
 # Dates of birth (labelled)
 _DOB_LABEL = re.compile(
     r"(?im)\b(?:dob|date\s+of\s+birth|born|geburtsdatum|birthdate)\b"
@@ -93,24 +76,9 @@ _DOB_LABEL = re.compile(
     r"(?P<val>\d{1,2}[\s./\-]\d{1,2}[\s./\-]\d{2,4}|\d{4}[\s./\-]\d{2}[\s./\-]\d{2})"
 )
 
-# Photo / video file references
-_PHOTO_VIDEO_RE = re.compile(
-    r"(?i)\b(?:passport\s+photo|photo\s+id|headshot|profile\s+(?:photo|picture|image)|"
-    r"(?:photo|picture|image|video)\s+(?:attached|enclosed|of\s+the\s+(?:employee|person|applicant))|"
-    r"\.(?:jpg|jpeg|png|gif|bmp|tiff?|mp4|mov|avi|mkv)\b)"
-)
-
 # Signature labels
 _SIGNATURE_RE = re.compile(
     r"(?im)\b(?:signature|signed\s+by|unterschrift|signature\s+block)\b\s*[:\-]\s*(?P<val>.+?)\s*$"
-)
-
-# Travel history
-_TRAVEL_RE = re.compile(
-    r"(?i)\b(?:round[\-\s]trip|one[\-\s]way|itinerary|boarding\s+pass|"
-    r"flight\s+[A-Z]{2}\d{2,4}|"
-    r"travel(?:led|ling)?\s+to\s+[A-Z][a-z]+|trip\s+to\s+[A-Z][a-z]+|"
-    r"[A-Z][a-z]+\s*(?:->|→)\s*[A-Z][a-z]+)"
 )
 
 # ID-document value token — alphanumeric with optional dashes/slashes
@@ -138,10 +106,6 @@ _NAME_RE = _label_value_re(
 _USERNAME_RE = _label_value_re(r"username|user\s*name|login|user\s*id|account")
 _PHONE_LABEL_RE = _label_value_re(r"phone|telephone|tel|mobile|mobil|cell|telefon")
 _FAX_LABEL_RE = _label_value_re(r"fax|fax\s*number|telefax")
-_ADDRESS_RE = _label_value_re(r"address|home\s*address|anschrift|adresse|residence")
-_BILLING_RE = _label_value_re(
-    r"billing\s*address|shipping\s*address|invoice\s*address|delivery\s*address"
-)
 
 # Employee ID shorthand e.g. "E-20491"
 _EMP_ID_RE = re.compile(r"\b[A-Z]-\d{4,6}\b")
@@ -271,36 +235,6 @@ def _detect_signatures(text: str) -> list[dict]:
     return out
 
 
-def _detect_photo_video(text: str) -> list[dict]:
-    out = []
-    for m in _PHOTO_VIDEO_RE.finditer(text):
-        f = _finding(PHOTO_VIDEO, m.start(), m.end(), m.group())
-        if f:
-            out.append(f)
-    return out
-
-
-def _detect_addresses(text: str) -> list[dict]:
-    out = []
-    for m in _BILLING_RE.finditer(text):
-        f = _finding(BILLING_SHIPPING, m.start("val"), m.end("val"), m.group("val"))
-        if f:
-            out.append(f)
-    for m in _ADDRESS_RE.finditer(text):
-        f = _finding(HOME_ADDRESS, m.start("val"), m.end("val"), m.group("val"))
-        if f:
-            out.append(f)
-    for rx in (_STREET_RE, _POSTAL_DE):
-        for m in rx.finditer(text):
-            f = _finding(HOME_ADDRESS, m.start(), m.end(), m.group())
-            if f:
-                out.append(f)
-    return out
-
-# module-level alias used by _detect_addresses above
-_STREET_RE = _STREET
-
-
 def _detect_id_documents(text: str) -> list[dict]:
     out = []
     for pattern, category in (
@@ -314,15 +248,6 @@ def _detect_id_documents(text: str) -> list[dict]:
                 f = _finding(category, m.start("val"), m.end("val"), v)
                 if f:
                     out.append(f)
-    return out
-
-
-def _detect_travel(text: str) -> list[dict]:
-    out = []
-    for m in _TRAVEL_RE.finditer(text):
-        f = _finding(TRAVEL_HISTORY, m.start(), m.end(), m.group())
-        if f:
-            out.append(f)
     return out
 
 
@@ -371,18 +296,6 @@ def _detect_ssn(text: str) -> list[dict]:
     return out
 
 
-def _detect_nhs(text: str) -> list[dict]:
-    out = []
-    for m in _NHS.finditer(text):
-        v = m.group()
-        # Exclude patterns already matched as SSN (different separator layout)
-        if not re.fullmatch(r"\d{3}[\s\-]\d{2}[\s\-]\d{4}", v):
-            f = _finding(NHS_NUMBER, m.start(), m.end(), v)
-            if f:
-                out.append(f)
-    return out
-
-
 def _detect_dob(text: str) -> list[dict]:
     out = []
     for m in _DOB_LABEL.finditer(text):
@@ -402,15 +315,11 @@ class RegexDetectorConfig:
     phones: bool = True
     usernames: bool = True
     signatures: bool = True
-    photo_video: bool = True
-    addresses: bool = True
     id_documents: bool = True
-    travel: bool = True
     ip_addresses: bool = True
     credit_cards: bool = True
     iban: bool = True
     ssn: bool = True
-    nhs: bool = True
     dob: bool = True
 
 
@@ -436,15 +345,11 @@ def detect_pii(text: str, config: RegexDetectorConfig | None = None) -> list[dic
         (cfg.phones,       _detect_phones),
         (cfg.usernames,    _detect_usernames),
         (cfg.signatures,   _detect_signatures),
-        (cfg.photo_video,  _detect_photo_video),
-        (cfg.addresses,    _detect_addresses),
         (cfg.id_documents, _detect_id_documents),
-        (cfg.travel,       _detect_travel),
         (cfg.ip_addresses, _detect_ip_addresses),
         (cfg.credit_cards, _detect_credit_cards),
         (cfg.iban,         _detect_iban),
         (cfg.ssn,          _detect_ssn),
-        (cfg.nhs,          _detect_nhs),
         (cfg.dob,          _detect_dob),
     ]
 

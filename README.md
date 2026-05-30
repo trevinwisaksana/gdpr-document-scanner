@@ -1,72 +1,110 @@
-# GDPR Data Discovery
+# GDPR Document Scanner
 
-Scan a folder of unstructured documents, detect the 13 categories of personal data, attribute
-each finding to a responsible person, flag files past the 3-year retention window, and let a
-human make the final delete decision. Built for the TECHon hackathon — Bosch *Automated GDPR
-Compliance* challenge.
+A FastAPI service that scans documents for personally identifiable information (PII) and GDPR-relevant data. Deployed as a Cloud Run service, triggered on a schedule via Cloud Scheduler.
 
-## Run
+## Architecture
+
+```
+app/
+  main.py        FastAPI entrypoint — CORS, structured JSON logging, lifespan hooks
+  process.py     Cron job orchestration — scan files, route findings to handlers
+  file_reader.py Text extraction for PDF, DOCX, PPTX, XLSX, CSV, HTML, RTF, and plain text
+detectors/
+  regex.py       Pure-regex PII detector — no NER or external model dependencies
+tests/           pytest test suite
+```
+
+**Deployment**: Cloud Build (`cloudbuild.yaml`) builds a Docker image, pushes to Artifact Registry (`us-central1`), and deploys to Cloud Run using the commit SHA as the image tag.
+
+## Detected PII categories
+
+The regex detector covers 19 categories:
+
+| Category | Description |
+|---|---|
+| `name` | Person names via label proximity |
+| `username` / `user_id` | Login names, employee IDs (e.g. `E-20491`) |
+| `email` | Email addresses |
+| `phone` / `fax` | Phone and fax numbers (international formats) |
+| `home_address` | Street addresses, German postal codes |
+| `billing_shipping_address` | Billing and shipping addresses |
+| `passport` | Passport numbers |
+| `id_card` | National ID / tax ID / VAT ID |
+| `drivers_license` | Driver's licence numbers |
+| `signature` | Signature blocks |
+| `photo_video` | References to photo/video files or attachments |
+| `travel_history` | Itineraries, flight references, trip mentions |
+| `ip_address` | IPv4 and IPv6 addresses |
+| `credit_card` | Visa, MC, Amex, Discover card numbers |
+| `iban` | International bank account numbers |
+| `ssn` | US Social Security Numbers |
+| `nhs_number` | UK NHS numbers |
+| `date_of_birth` | Labelled date-of-birth fields |
+
+## Run locally
 
 ```bash
-./start.sh
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
 ```
 
-First run creates a venv, installs deps, downloads the spaCy model, and opens the app. The
-SQLite store seeds demo users and runs an initial scan automatically, so the UI is populated on
-first boot. No API key required — detection is deterministic by default.
-
-## 60-second demo script
-
-1. **Login** — pick `Jonas Keller` (employee). You see only the files he is responsible for,
-   each with a finding count and a retention badge.
-2. Open a file → **GDPR finding cards**: category, snippet, confidence, the GDPR article that
-   applies and why, and the responsible owner. Hit **Required for business** or **Mark for
-   deletion** — nothing auto-deletes; the human has the last word.
-3. Switch account → `Klaus Weber (DPO)` (admin). **Admin dashboard**: KPI cards (files scanned,
-   flagged, volume, last scan duration, total findings), category and source breakdowns.
-4. **Run Full Scan** — progress bar moves. **Run Delta Scan** immediately after — reports almost
-   every file skipped (only changed files re-scanned). Re-run Full on unchanged data → identical
-   findings (stable content-derived IDs = reproducible).
-5. **Reset demo** returns to a clean, known state.
-
-State lives in SQLite (`data/gdpr.db`), so it survives tab backgrounding.
-
-## How detection works
-
-Deterministic-first. Cheap, reproducible regex + label-proximity detectors run on every file;
-spaCy/Presidio NER supplies names and locations. An LLM (OpenRouter) is **optional and off by
-default** — it only confirms low-confidence spans, runs at temperature 0, and is content-hash
-cached. The full flow works with no API key.
-
-The 13 categories — name, username, email, signature, photo/video, phone, fax, home address,
-billing/shipping address, passport no., ID-card no., driver's licence, travel history — each map
-to the relevant GDPR articles (Art. 5 / 17 / 25 / 32) and a responsible person via a dual-owner
-model (direct owner for personal stores, Master-of-Data steward for shared stores).
-
-## Accuracy
-
-Hand-labeled precision/recall over a 10-file subset of the sample data:
+Or with explicit env vars:
 
 ```bash
-./venv/bin/python -m scanner.accuracy
+PORT=8080 ALLOWED_ORIGINS=* uvicorn app.main:app --reload
 ```
 
-Latest run: **precision 0.96, recall 1.00, F1 0.98** (22 labeled items, 1 false positive). The
-numbers are produced live by the detectors — nothing is hardcoded.
+## Environment variables
 
-## Optional LLM escalation
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `8080` | Port the server listens on |
+| `ALLOWED_ORIGINS` | `*` | Comma-separated CORS origins |
 
-Copy `.env.example` to `.env` and set `OPENROUTER_API_KEY` to enable. Leave it blank for
-deterministic-only. The key is never committed.
+Copy `.env.example` to `.env` to set these locally.
 
-## Layout
+## API
 
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/` | Service name and status |
+| `GET` | `/health` | Health check |
+
+## Cron job / batch processing
+
+`app/process.py` is the scheduled-job entry point. Call `run(file_paths)` with a list of file paths to scan them and route findings:
+
+```python
+from app.process import run, RegexDetectorConfig
+
+results = run(["report.pdf", "employees.csv"])
+# Each result: ScanResult(file_path, findings=[{category, start, end, snippet}])
 ```
-scanner/   detectors, gdpr mapping, ownership, scan orchestration, SQLite store, seed, escalate, accuracy
-ui/        shared CSS shell + login / my-files / admin views
-core/      reused PII engine (Presidio + spaCy), ingestion, validator, ollama fallback
-app.py     Streamlit entrypoint — session-state router over the three views
-sample-data/  demo documents (default scan target)
+
+Disable specific detectors via `RegexDetectorConfig`:
+
+```python
+from detectors.regex import RegexDetectorConfig
+config = RegexDetectorConfig(ip_addresses=False, travel=False)
+results = run(file_paths, config=config)
 ```
-# gdpr-document-scanner
-# gdpr-document-scanner
+
+## Supported file types
+
+`PDF`, `DOCX`, `PPTX`, `XLSX` / `XLS`, `CSV`, `HTML`, `RTF`, `TXT`, `MD`, `LOG`, `JSON`, `XML`, `YAML`
+
+## Tests
+
+```bash
+pytest
+```
+
+## Deployment
+
+Triggered automatically by Cloud Build on push. Manual deploy:
+
+```bash
+gcloud builds submit --config cloudbuild.yaml
+```
+
+The container runs as a non-root `appuser` (see `Dockerfile`). Logs are structured JSON, compatible with Cloud Logging.
