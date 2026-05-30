@@ -1,32 +1,58 @@
-[
-  {
-    "text": "Acme Ltd",
-    "category": "Organization",
-    "confidence": 1.0
-  },
-  {
-    "text": "John Doe",
-    "category": "Person",
-    "confidence": 0.99
-  },
-  {
-    "text": "john.doe@example.com",
-    "category": "Email",
-    "confidence": 0.8
-  },
-  {
-    "text": "three years",
-    "category": "DateTime",
-    "confidence": 1.0
-  },
-  {
-    "text": "Processing",
-    "category": "Event",
-    "confidence": 0.93
-  },
-  {
-    "text": "consent",
-    "category": "Event",
-    "confidence": 0.44
+{
+  "kind": "EntityRecognitionResults",
+  "results": {
+    "documents": [
+      {
+        "id": "1",
+        "entities": [
+          {
+            "text": "Acme Ltd",
+            "category": "Organization",
+            "offset": 0,
+            "length": 8,
+            "confidenceScore": 1.0
+          },
+          {
+            "text": "John Doe",
+            "category": "Person",
+            "offset": 62,
+            "length": 8,
+            "confidenceScore": 0.99
+          },
+          {
+            "text": "john.doe@example.com",
+            "category": "Email",
+            "offset": 88,
+            "length": 20,
+            "confidenceScore": 0.8
+          },
+          {
+            "text": "three years",
+            "category": "DateTime",
+            "subcategory": "Duration",
+            "offset": 129,
+            "length": 11,
+            "confidenceScore": 1.0
+          },
+          {
+            "text": "Processing",
+            "category": "Event",
+            "offset": 142,
+            "length": 10,
+            "confidenceScore": 0.93
+          },
+          {
+            "text": "consent",
+            "category": "Event",
+            "offset": 174,
+            "length": 7,
+            "confidenceScore": 0.44
+          }
+        ],
+        "warnings": []
+      }
+    ],
+    "errors": [],
+    "modelVersion": "2025-11-01"
   }
-]
+}
