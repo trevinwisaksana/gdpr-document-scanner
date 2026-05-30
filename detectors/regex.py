@@ -99,26 +99,12 @@ _ID_CARD_RE = re.compile(
 def _label_value_re(labels: str) -> re.Pattern:
     return re.compile(rf"(?im)\b(?:{labels})\b\s*[:\-]\s*(?P<val>.+?)\s*$")
 
-_NAME_RE = _label_value_re(
-    r"name|employee|participant|manager|reviewer|approver|trainer|"
-    r"contact\s*person|owner|requested\s*by|prepared\s*by|applicant"
-)
 _USERNAME_RE = _label_value_re(r"username|user\s*name|login|user\s*id|account")
 _PHONE_LABEL_RE = _label_value_re(r"phone|telephone|tel|mobile|mobil|cell|telefon")
 _FAX_LABEL_RE = _label_value_re(r"fax|fax\s*number|telefax")
 
 # Employee ID shorthand e.g. "E-20491"
 _EMP_ID_RE = re.compile(r"\b[A-Z]-\d{4,6}\b")
-
-# Stopwords that look like name values but are roles/departments
-_ROLE_STOPWORDS = frozenset({
-    "lead", "team", "desk", "service", "ops", "governance", "manager", "reviewer",
-    "approver", "participant", "owner", "trainer", "department", "it", "hr",
-    "procurement", "operations", "support", "admin", "staff", "group", "office",
-    "compliance", "officer", "identity", "access", "vendor", "management",
-    "facility", "coordinator", "catalog", "unit", "committee", "board",
-})
-
 
 # ── internal helpers ───────────────────────────────────────────────────────────
 
@@ -134,10 +120,6 @@ def _finding(category: str, start: int, end: int, snippet: str) -> dict | None:
         "source": "regex",
     }
 
-
-def _looks_like_role(value: str) -> bool:
-    tokens = [t.lower().strip(".") for t in value.split()]
-    return bool(tokens) and all(t in _ROLE_STOPWORDS for t in tokens)
 
 
 def _dedupe(findings: list[dict]) -> list[dict]:
@@ -183,23 +165,6 @@ def _detect_phones(text: str) -> list[dict]:
             f = _finding(PHONE, m.start(), m.end(), s)
             if f:
                 out.append(f)
-    return out
-
-
-def _detect_names(text: str) -> list[dict]:
-    out = []
-    rx = re.compile(
-        r"(?im)\b(?:name|employee|participant|manager|reviewer|approver|trainer|"
-        r"contact\s*person|owner|requested\s*by|prepared\s*by|applicant)\b"
-        r"[ \t]*[:\-][ \t]*(?P<val>[A-Z][\w.\'-]+(?:[ \t]+[A-Z][\w.\'-]+){0,3})"
-    )
-    for m in rx.finditer(text):
-        v = m.group("val").strip()
-        if "@" in v or re.search(r"\d", v) or _looks_like_role(v):
-            continue
-        f = _finding(NAME, m.start("val"), m.end("val"), v)
-        if f:
-            out.append(f)
     return out
 
 
@@ -300,7 +265,6 @@ def _detect_dob(text: str) -> list[dict]:
 @dataclass
 class RegexDetectorConfig:
     """Toggle individual detectors to trade coverage for speed."""
-    names: bool = True
     emails: bool = True
     phones: bool = True
     usernames: bool = True
@@ -330,7 +294,6 @@ def detect_pii(text: str, config: RegexDetectorConfig | None = None) -> list[dic
     cfg = config or RegexDetectorConfig()
 
     runners: list[tuple[bool, Callable[[str], list[dict]]]] = [
-        (cfg.names,        _detect_names),
         (cfg.emails,       _detect_emails),
         (cfg.phones,       _detect_phones),
         (cfg.usernames,    _detect_usernames),
