@@ -68,3 +68,4 @@ core/      reused PII engine (Presidio + spaCy), ingestion, validator, ollama fa
 app.py     Streamlit entrypoint — session-state router over the three views
 sample-data/  demo documents (default scan target)
 ```
+# gdpr-document-scanner
