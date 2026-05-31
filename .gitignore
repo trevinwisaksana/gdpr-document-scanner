@@ -8,3 +8,6 @@ venv/
 data/gdpr.db
 .pytest_cache/
 .claude/worktrees/
+.idea/
+.junie/
+app/NER_key.py

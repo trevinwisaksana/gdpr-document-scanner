@@ -1,6 +1,6 @@
 # GDPR Data Discovery
 
-Built for the **TECHon hackathon — Bosch GDPR challenge**.
+Built for the **TECHon hackathon — Bosch GDPR challenge**. A FastAPI service that scans documents for personally identifiable information (PII) and GDPR-relevant data, containerized for Cloud Run.
 
 ---
 
@@ -107,15 +107,15 @@ gcloud run deploy gdpr-ui \
 
 ```
 app/
-  main.py        Entry point — structured JSON logging, lifespan hooks
-  process.py     Cron job orchestration — scan files, route findings to handlers
+  main.py        FastAPI entry point — `/health` and `/scan/text`
+  process.py     Scan orchestration — scan files, route findings to handlers
   file_reader.py Text extraction for PDF, DOCX, PPTX, XLSX, CSV, HTML, RTF, and plain text
 detectors/
   regex.py       Pure-regex PII detector — no NER or external model dependencies
 tests/           pytest test suite
 ```
 
-**Deployment**: Cloud Build (`cloudbuild.yaml`) builds a Docker image, pushes to Artifact Registry (`us-central1`), and deploys to Cloud Run using the commit SHA as the image tag. Cloud Scheduler triggers the job on a cron schedule.
+**Deployment**: Cloud Build (`cloudbuild.yaml`) builds a Docker image, pushes to Artifact Registry (`us-central1`), and deploys to Cloud Run using the commit SHA as the image tag.
 
 ### Detected PII categories
 
@@ -146,13 +146,33 @@ The regex detector covers 19 categories:
 
 ```bash
 pip install -r requirements.txt
-python -m app.process
+uvicorn app.main:app --host 0.0.0.0 --port 8080
 ```
 
 Or via `run.py` CLI:
 ```bash
 python run.py ./sample-data
 ```
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `8080` | Port the Cloud Run container listens on |
+| `ALLOWED_ORIGINS` | `*` | Comma-separated CORS origins for the API |
+
+Copy `.env.example` to `.env` to set these locally.
+
+### Workflow endpoints
+
+The API exposes two trigger endpoints:
+
+```bash
+POST /scan/text
+POST /workflows/drive/scan
+```
+
+`/scan/text` scans already-extracted text. `/workflows/drive/scan` lists Drive files and enqueues them for extraction and PII scanning via Pub/Sub.
 
 ### Batch processing API
 
@@ -166,7 +186,7 @@ results = run(["report.pdf", "employees.csv"])
 Disable specific detectors:
 ```python
 from detectors.regex import RegexDetectorConfig
-config = RegexDetectorConfig(ip_addresses=False, travel=False)
+config = RegexDetectorConfig(ip_addresses=False, ssn=False)
 results = run(file_paths, config=config)
 ```
 
@@ -188,9 +208,9 @@ Triggered automatically by Cloud Build on push. Manual deploy:
 gcloud builds submit --config cloudbuild.yaml
 ```
 
-The container runs as non-root `appuser` (see `Dockerfile`). Logs are structured JSON, compatible with Cloud Logging.
+The container runs as a non-root `appuser` (see `Dockerfile`). Logs are structured JSON, compatible with Cloud Logging. Update `cloudbuild.yaml` if you need a different service name, region, or env var set.
 
-### Environment variables
+### Local dev environment variables
 
 | Variable | Default | Description |
 |---|---|---|
