@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from app.gdrive_extractor import GDriveLister
 from app.process import ScanResult, scan_text
 from detectors.regex import RegexDetectorConfig
+import scanner.store as store
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
@@ -80,6 +81,23 @@ class DriveWorkflowResponse(BaseModel):
     status: str
 
 
+class FlaggedFile(BaseModel):
+    id: str
+    path: str
+    source_type: str
+    size_bytes: int
+    last_modified: float
+    last_scanned_at: float | None
+    n_findings: int
+    finding_categories: list[str]
+
+
+class FlaggedFilesResponse(BaseModel):
+    user_id: str
+    total: int
+    files: list[FlaggedFile]
+
+
 def _to_config(config: RegexConfigPayload | None) -> RegexDetectorConfig | None:
     if config is None:
         return None
@@ -103,6 +121,31 @@ def health() -> dict[str, str]:
 def scan_text_endpoint(payload: ScanTextRequest) -> ScanTextResponse:
     result = scan_text(payload.text, payload.file_id, _to_config(payload.config))
     return _to_response(result)
+
+
+@app.get("/users/{user_id}/files", response_model=FlaggedFilesResponse)
+def list_flagged_files(user_id: str) -> FlaggedFilesResponse:
+    """Return all flagged files (files with PII findings) that belong to the given user."""
+    store.init_db()
+    user = store.get_user(user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+
+    rows = store.flagged_files_for_user(user_id)
+    files = [
+        FlaggedFile(
+            id=row["id"],
+            path=row["path"],
+            source_type=row["source_type"],
+            size_bytes=row["size_bytes"],
+            last_modified=row["last_modified"],
+            last_scanned_at=row["last_scanned_at"],
+            n_findings=row["n_findings"],
+            finding_categories=row["categories"].split(",") if row["categories"] else [],
+        )
+        for row in rows
+    ]
+    return FlaggedFilesResponse(user_id=user_id, total=len(files), files=files)
 
 
 @app.post("/workflows/drive/scan", response_model=DriveWorkflowResponse)

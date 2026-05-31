@@ -181,6 +181,19 @@ def files_for_user(user_id: str) -> list[sqlite3.Row]:
         ).fetchall()
 
 
+def flagged_files_for_user(user_id: str) -> list[sqlite3.Row]:
+    """Like files_for_user but also includes a comma-separated list of distinct finding categories."""
+    with connect() as conn:
+        return conn.execute(
+            "SELECT f.*, COUNT(fd.id) AS n_findings, "
+            "GROUP_CONCAT(DISTINCT fd.category) AS categories "
+            "FROM files f JOIN findings fd ON fd.file_id = f.id "
+            "WHERE f.owner_user_id=? OR f.master_of_data_user_id=? "
+            "GROUP BY f.id ORDER BY f.last_modified DESC",
+            (user_id, user_id),
+        ).fetchall()
+
+
 # ── findings ──────────────────────────────────────────────────────────────────
 
 def replace_findings(file_id_: str, findings: list[dict]) -> int:

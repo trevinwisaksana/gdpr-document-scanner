@@ -15,6 +15,8 @@ Optional env vars:
 import json
 import logging
 import os
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from google.cloud import pubsub_v1
 
@@ -24,7 +26,22 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 
+def _start_health_server() -> None:
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+        def log_message(self, *args):
+            pass
+
+    port = int(os.environ.get("PORT", "8080"))
+    HTTPServer(("", port), Handler).serve_forever()
+
+
 def main() -> None:
+    threading.Thread(target=_start_health_server, daemon=True).start()
     subscription = os.environ["PUBSUB_SUBSCRIPTION"]
     scanner_topic = os.environ["SCANNER_PUBSUB_TOPIC"]
     max_messages = int(os.environ.get("MAX_MESSAGES", "10"))

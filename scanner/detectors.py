@@ -12,7 +12,6 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-from core.pii_detector import detect as ner_detect
 from scanner import gdpr
 
 # ── primitive patterns ────────────────────────────────────────────────────────
@@ -148,17 +147,6 @@ def _names(text: str, out: list) -> None:
         _add(out, gdpr.NAME, m.start("val"), m.end("val"), v, 0.95, "regex")
         name_spans.add((m.start("val"), m.end("val")))
 
-    # spaCy/Presidio NER for names the labels miss
-    try:
-        for d in ner_detect(text, ["PERSON"], engine="presidio"):
-            span = (d["start"], d["end"])
-            if any(not (span[1] <= s or e <= span[0]) for s, e in name_spans):
-                continue
-            if _looks_like_role(d["text"]) or " " not in d["text"].strip():
-                continue  # roles and bare single tokens are usually field labels, not names
-            _add(out, gdpr.NAME, d["start"], d["end"], d["text"], min(d["score"], 0.9), "spacy")
-    except Exception as e:  # NER is best-effort; deterministic detectors stand alone
-        print(f"[detectors] NER unavailable: {e}")
 
 
 # ── orchestration ─────────────────────────────────────────────────────────────

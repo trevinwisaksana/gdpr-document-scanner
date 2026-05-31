@@ -1,7 +1,7 @@
 """Tests for the FastAPI scan endpoint."""
 import os
 import sys
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -12,6 +12,101 @@ from app.process import ScanResult
 
 
 client = TestClient(app)
+
+
+def _make_row(**kwargs):
+    """Return a dict-like object that supports row["key"] access, mimicking sqlite3.Row."""
+    row = MagicMock()
+    row.__getitem__ = lambda self, k: kwargs[k]
+    return row
+
+
+def test_list_flagged_files_returns_404_for_unknown_user():
+    with patch("app.main.store.get_user", return_value=None):
+        response = client.get("/users/nonexistent/files")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "user not found"
+
+
+def test_list_flagged_files_returns_files_with_findings():
+    fake_user = _make_row(id="u-1", name="Alice", email="alice@example.com", role="employee")
+    fake_files = [
+        _make_row(
+            id="f-1",
+            path="docs/contract.pdf",
+            source_type="onedrive",
+            size_bytes=12000,
+            last_modified=1717000000.0,
+            last_scanned_at=1717100000.0,
+            n_findings=3,
+            categories="email,phone",
+        ),
+        _make_row(
+            id="f-2",
+            path="docs/hr.docx",
+            source_type="sharepoint",
+            size_bytes=8000,
+            last_modified=1716000000.0,
+            last_scanned_at=1716100000.0,
+            n_findings=1,
+            categories="name",
+        ),
+    ]
+
+    with (
+        patch("app.main.store.get_user", return_value=fake_user),
+        patch("app.main.store.flagged_files_for_user", return_value=fake_files),
+    ):
+        response = client.get("/users/u-1/files")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["user_id"] == "u-1"
+    assert body["total"] == 2
+    assert body["files"][0]["id"] == "f-1"
+    assert body["files"][0]["n_findings"] == 3
+    assert set(body["files"][0]["finding_categories"]) == {"email", "phone"}
+    assert body["files"][1]["finding_categories"] == ["name"]
+
+
+def test_list_flagged_files_returns_empty_list_when_no_findings():
+    fake_user = _make_row(id="u-2", name="Bob", email="bob@example.com", role="employee")
+
+    with (
+        patch("app.main.store.get_user", return_value=fake_user),
+        patch("app.main.store.flagged_files_for_user", return_value=[]),
+    ):
+        response = client.get("/users/u-2/files")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 0
+    assert body["files"] == []
+
+
+def test_list_flagged_files_handles_null_categories():
+    fake_user = _make_row(id="u-3", name="Carol", email="carol@example.com", role="employee")
+    fake_files = [
+        _make_row(
+            id="f-3",
+            path="docs/empty.pdf",
+            source_type="fileshare",
+            size_bytes=500,
+            last_modified=1715000000.0,
+            last_scanned_at=None,
+            n_findings=0,
+            categories=None,
+        ),
+    ]
+
+    with (
+        patch("app.main.store.get_user", return_value=fake_user),
+        patch("app.main.store.flagged_files_for_user", return_value=fake_files),
+    ):
+        response = client.get("/users/u-3/files")
+
+    assert response.status_code == 200
+    assert response.json()["files"][0]["finding_categories"] == []
 
 
 def test_health_endpoint():
