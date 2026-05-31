@@ -5,7 +5,9 @@ import yaml
 from pathlib import Path
 
 from core.validator import filter_detections
-from core.ollama import OLLAMA_URL, is_running, first_model
+OLLAMA_URL = "http://localhost:11434/api/generate"
+def is_running() -> bool: return False
+def first_model() -> str: return ""
 
 CONFIG_DIR = Path(__file__).parent.parent / "config"
 
