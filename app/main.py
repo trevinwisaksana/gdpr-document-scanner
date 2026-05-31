@@ -17,6 +17,14 @@ from google.cloud import pubsub_v1
 from pydantic import BaseModel, Field
 
 from app.gdrive_extractor import GDriveLister
+from app.KPR_functions import (
+    flagged_files_per_owner,
+    list_all_owners,
+    percentage_files_flagged,
+    total_files_flagged,
+    total_files_processed,
+    total_files_registered,
+)
 from app.process import ScanResult, scan_text
 from detectors.regex import RegexDetectorConfig
 import scanner.store as store
@@ -98,6 +106,23 @@ class FlaggedFilesResponse(BaseModel):
     files: list[FlaggedFile]
 
 
+class KPIValueResponse(BaseModel):
+    value: int | float
+
+
+class KPIOwnersResponse(BaseModel):
+    owners: list[str]
+
+
+class KPIFlaggedByOwnerItem(BaseModel):
+    owner: str
+    flagged_files: int
+
+
+class KPIFlaggedByOwnerResponse(BaseModel):
+    items: list[KPIFlaggedByOwnerItem]
+
+
 def _to_config(config: RegexConfigPayload | None) -> RegexDetectorConfig | None:
     if config is None:
         return None
@@ -121,6 +146,38 @@ def health() -> dict[str, str]:
 def scan_text_endpoint(payload: ScanTextRequest) -> ScanTextResponse:
     result = scan_text(payload.text, payload.file_id, _to_config(payload.config))
     return _to_response(result)
+
+
+@app.get("/kpis/total-files-registered", response_model=KPIValueResponse)
+def kpi_total_files_registered() -> KPIValueResponse:
+    return KPIValueResponse(value=total_files_registered())
+
+
+@app.get("/kpis/total-files-flagged", response_model=KPIValueResponse)
+def kpi_total_files_flagged() -> KPIValueResponse:
+    return KPIValueResponse(value=total_files_flagged())
+
+
+@app.get("/kpis/total-files-processed", response_model=KPIValueResponse)
+def kpi_total_files_processed() -> KPIValueResponse:
+    return KPIValueResponse(value=total_files_processed())
+
+
+@app.get("/kpis/percentage-files-flagged", response_model=KPIValueResponse)
+def kpi_percentage_files_flagged() -> KPIValueResponse:
+    return KPIValueResponse(value=percentage_files_flagged())
+
+
+@app.get("/kpis/owners", response_model=KPIOwnersResponse)
+def kpi_owners() -> KPIOwnersResponse:
+    return KPIOwnersResponse(owners=list_all_owners())
+
+
+@app.get("/kpis/flagged-files-per-owner", response_model=KPIFlaggedByOwnerResponse)
+def kpi_flagged_files_per_owner() -> KPIFlaggedByOwnerResponse:
+    return KPIFlaggedByOwnerResponse(
+        items=[KPIFlaggedByOwnerItem(**row) for row in flagged_files_per_owner()]
+    )
 
 
 @app.get("/users/{user_id}/files", response_model=FlaggedFilesResponse)
