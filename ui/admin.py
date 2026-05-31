@@ -63,8 +63,8 @@ def _scan_control() -> None:
                 r = requests.post(CLOUD_SCAN_URL, timeout=15)
                 data = r.json()
                 st.success(
-                    f"GCP scan triggered — {data.get('files_queued', '?')} files queued. "
-                    f"Results will appear as the pipeline processes them."
+                    f"GCP scan complete — {data.get('processed_files', '?')} files scanned, "
+                    f"{data.get('with_pii', '?')} flagged."
                 )
             except Exception as e:
                 st.error(f"Failed to reach GCP endpoint: {e}")
