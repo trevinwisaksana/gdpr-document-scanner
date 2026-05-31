@@ -72,9 +72,8 @@ class ScanResult:
 
 # ── use-case ──────────────────────────────────────────────────────────────────
 
-def scan_document(file_path: str | Path, config: RegexDetectorConfig | None = None) -> ScanResult:
-    """Extract text from *file_path*, run the regex PII detector, and fall back to NER if nothing is found."""
-    text = extract_text(file_path)
+def scan_text(text: str, file_id: str, config: RegexDetectorConfig | None = None) -> ScanResult:
+    """Run the PII detector on already-extracted *text*."""
     findings = detect_pii(text, config)
 
     if not findings:
@@ -86,12 +85,18 @@ def scan_document(file_path: str | Path, config: RegexDetectorConfig | None = No
             verified  = llm_verify_findings(text, low_conf) if low_conf else []
             findings  = high_conf + verified
         except Exception:
-            logger.warning("NER fallback failed", extra={"file": str(file_path)})
+            logger.warning("NER fallback failed", extra={"file": file_id})
 
     if not findings:
         findings = llm_detect_pii(text)
 
-    return ScanResult(file_path=str(file_path), findings=findings)
+    return ScanResult(file_path=file_id, findings=findings)
+
+
+def scan_document(file_path: str | Path, config: RegexDetectorConfig | None = None) -> ScanResult:
+    """Extract text from *file_path* then scan it."""
+    text = extract_text(file_path)
+    return scan_text(text, str(file_path), config)
 
 
 # ── downstream handlers ───────────────────────────────────────────────────────

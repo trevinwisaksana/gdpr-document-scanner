@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import google_auth_httplib2
-import httplib2
-from google.auth import default
+import os
+
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-SCOPES = ["https://www.googleapis.com/auth/drive"]
+SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 
 # Google Workspace native types → (export MIME type, file extension)
 GOOGLE_EXPORT: dict[str, tuple[str, str]] = {
@@ -35,6 +35,8 @@ SUPPORTED_MIME: dict[str, str] = {
 
 
 def build_drive_service():
-    credentials, _ = default(scopes=SCOPES)
-    http = google_auth_httplib2.AuthorizedHttp(credentials, http=httplib2.Http())
-    return build("drive", "v3", http=http, cache_discovery=False)
+    credentials = service_account.Credentials.from_service_account_file(
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"],
+        scopes=SCOPES,
+    )
+    return build("drive", "v3", credentials=credentials)
