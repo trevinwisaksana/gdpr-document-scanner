@@ -1,7 +1,7 @@
 """
 Scanner consumer service.
 Pulls extracted text messages from Pub/Sub, runs PII detection, and updates
-the status_flag on drive_files in Postgres.
+the status_flag, detection stage, and primary PII category on drive_files in Postgres.
 
 Required env vars:
   PUBSUB_SUBSCRIPTION  — Pub/Sub subscription to pull from
@@ -49,11 +49,12 @@ def _start_health_server() -> None:
 _ENSURE_SCHEMA = """
 CREATE INDEX IF NOT EXISTS idx_drive_files_owner ON drive_files (owner);
 ALTER TABLE drive_files ADD COLUMN IF NOT EXISTS detection_stage TEXT;
+ALTER TABLE drive_files ADD COLUMN IF NOT EXISTS pii_category TEXT;
 """
 
 _BATCH_UPDATE_FLAG = """
-UPDATE drive_files SET status_flag = v.flag, detection_stage = v.stage, last_seen_at = NOW()
-FROM (VALUES %s) AS v(flag, stage, file_id)
+UPDATE drive_files SET status_flag = v.flag, detection_stage = v.stage, pii_category = v.category, last_seen_at = NOW()
+FROM (VALUES %s) AS v(flag, stage, category, file_id)
 WHERE drive_files.file_id = v.file_id
 """
 
@@ -91,7 +92,7 @@ def _flusher(pool: psycopg2.pool.ThreadedConnectionPool, write_queue: queue.Queu
             continue
 
         messages = [item[0] for item in batch]
-        values = [(item[1], item[2], item[3]) for item in batch]
+        values = [(item[1], item[2], item[3], item[4]) for item in batch]
 
         logger.info("flushing batch size=%d", len(batch))
         conn = pool.getconn()
@@ -143,10 +144,11 @@ def main() -> None:
 
             result = scan_text(text, file_id)
             status_flag = "flagged" if result.has_pii else "not_flagged"
+            pii_category = result.category
 
             logger.info(
-                "scan complete file_id=%s name=%r has_pii=%s findings=%d stage=%s",
-                file_id, file_name, result.has_pii, len(result.findings), result.stage,
+                "scan complete file_id=%s name=%r has_pii=%s category=%s findings=%d stage=%s",
+                file_id, file_name, result.has_pii, pii_category, len(result.findings), result.stage,
             )
             for f in result.findings:
                 logger.info(
@@ -154,7 +156,7 @@ def main() -> None:
                     file_id, f["category"], f.get("snippet"), f.get("confidence"),
                 )
 
-            write_queue.put((message, status_flag, result.stage, file_id))
+            write_queue.put((message, status_flag, result.stage, pii_category, file_id))
 
         except Exception as exc:
             logger.error(
