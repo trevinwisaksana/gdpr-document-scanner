@@ -143,6 +143,65 @@ def test_scan_text_endpoint_maps_payload_to_scanner():
     assert config.phones is False
 
 
+def test_kpi_total_files_registered_endpoint():
+    with patch("app.main.total_files_registered", return_value=42):
+        response = client.get("/kpis/total-files-registered")
+
+    assert response.status_code == 200
+    assert response.json() == {"value": 42}
+
+
+def test_kpi_total_files_flagged_endpoint():
+    with patch("app.main.total_files_flagged", return_value=9):
+        response = client.get("/kpis/total-files-flagged")
+
+    assert response.status_code == 200
+    assert response.json() == {"value": 9}
+
+
+def test_kpi_total_files_processed_endpoint():
+    with patch("app.main.total_files_processed", return_value=37):
+        response = client.get("/kpis/total-files-processed")
+
+    assert response.status_code == 200
+    assert response.json() == {"value": 37}
+
+
+def test_kpi_percentage_files_flagged_endpoint():
+    with patch("app.main.percentage_files_flagged", return_value=24.32):
+        response = client.get("/kpis/percentage-files-flagged")
+
+    assert response.status_code == 200
+    assert response.json() == {"value": 24.32}
+
+
+def test_kpi_owners_endpoint():
+    with patch("app.main.list_all_owners", return_value=["a@example.com", "b@example.com"]):
+        response = client.get("/kpis/owners")
+
+    assert response.status_code == 200
+    assert response.json() == {"owners": ["a@example.com", "b@example.com"]}
+
+
+def test_kpi_flagged_files_per_owner_endpoint():
+    with patch(
+        "app.main.flagged_files_per_owner",
+        return_value=[
+            {"owner": "a@example.com", "flagged_files": 7},
+            {"owner": "b@example.com", "flagged_files": 2},
+        ],
+    ):
+        response = client.get("/kpis/flagged-files-per-owner")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": [
+            {"owner": "a@example.com", "flagged_files": 7},
+            {"owner": "b@example.com", "flagged_files": 2},
+        ]
+    }
+
+
 def test_drive_workflow_endpoint_queues_files_to_pubsub():
     files = [
         {"file_id": "f-1", "name": "alpha.pdf"},

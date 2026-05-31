@@ -31,7 +31,7 @@ class GDriveLister:
                         "name": f["name"],
                         "mime_type": mime_type,
                         "modified_time": f.get("createdTime"),
-                        "owner": owners[0].get("emailAddress") if owners else None,
+                        "owner": owners[0].get("emailAddress") if owners else "admin@admin.com",
                         "deleted": f.get("trashed", False),
                         "flag": False,
                     }
