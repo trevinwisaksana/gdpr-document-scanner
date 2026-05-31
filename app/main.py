@@ -1,6 +1,7 @@
 """FastAPI entrypoint for document scanning."""
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 from fastapi import FastAPI
@@ -123,6 +124,8 @@ def scan_text_endpoint(payload: ScanTextRequest) -> ScanTextResponse:
     return _to_response(result)
 
 
-@app.post("/workflows/drive/scan", response_model=DriveWorkflowResponse)
-def run_drive_workflow_endpoint(payload: DriveWorkflowRequest) -> DriveWorkflowResponse:
-    return run_drive_workflow(payload.max_files)
+@app.post("/workflows/drive/scan")
+def run_drive_workflow_endpoint(payload: DriveWorkflowRequest) -> dict:
+    thread = threading.Thread(target=run_drive_workflow, args=(payload.max_files,), daemon=True)
+    thread.start()
+    return {"status": "triggered", "message": "Drive scan started in background."}

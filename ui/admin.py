@@ -62,10 +62,7 @@ def _scan_control() -> None:
             try:
                 r = requests.post(CLOUD_SCAN_URL, timeout=15)
                 data = r.json()
-                st.success(
-                    f"GCP scan complete — {data.get('processed_files', '?')} files scanned, "
-                    f"{data.get('with_pii', '?')} flagged."
-                )
+                st.success("GCP scan triggered — running in background. Results will appear shortly.")
             except Exception as e:
                 st.error(f"Failed to reach GCP endpoint: {e}")
 
