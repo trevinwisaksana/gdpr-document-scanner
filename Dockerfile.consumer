@@ -4,8 +4,8 @@ WORKDIR /app
 
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.consumer.txt .
+RUN pip install --no-cache-dir -r requirements.consumer.txt
 
 COPY app/ app/
 COPY services/ services/
