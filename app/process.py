@@ -65,6 +65,7 @@ def _ner_to_findings(entities: list[dict]) -> list[dict]:
 class ScanResult:
     file_path: str
     findings: list[dict]
+    stage: str = "regex"
 
     @property
     def has_pii(self) -> bool:
@@ -125,7 +126,7 @@ def scan_text(text: str, file_id: str, config: RegexDetectorConfig | None = None
         " ".join(f"{k}={v}" for k, v in timings.items()),
     )
 
-    return ScanResult(file_path=file_id, findings=findings)
+    return ScanResult(file_path=file_id, findings=findings, stage=stage)
 
 
 def scan_document(file_path: str | Path, config: RegexDetectorConfig | None = None) -> ScanResult:

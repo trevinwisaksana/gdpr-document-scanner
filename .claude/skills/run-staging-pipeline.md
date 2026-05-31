@@ -4,10 +4,7 @@ Scale the extraction consumer, wipe the DB, repopulate from Drive, and queue all
 
 ## DB connection capacity
 
-Cloud SQL instance `drive-metadata-db` (db-f1-micro) has `max_connections=100`. Scanner consumer uses `ThreadedConnectionPool(minconn=1, maxconn=5)` per instance (flusher holds at most 1 connection at a time) — safe to run up to 8 instances. Do not increase beyond 8 without also raising `max_connections` via:
-```bash
-gcloud sql instances patch drive-metadata-db --database-flags=max_connections=<N> --project=summer-bond-461608-i5
-```
+Cloud SQL instance `drive-metadata-db` (db-f1-micro) has `max_connections=200`. Scanner consumer uses `ThreadedConnectionPool(minconn=1, maxconn=5)` per instance — safe to run up to 20 instances (20 × 5 = 100 connections, well within 200).
 
 ## Key variables
 
@@ -20,25 +17,7 @@ DB_PASS='Prototype123!'
 
 ## Steps
 
-### 1. Scale extraction consumer to 6–8 instances
-
-```bash
-gcloud run services update gdpr-extraction-consumer \
-  --min-instances=6 --max-instances=8 \
-  --project=summer-bond-461608-i5 --region=us-central1
-```
-
-### 2. Scale scanner consumer down (prevents DB connection exhaustion during reset)
-
-Scanner uses `ThreadedConnectionPool(minconn=1, maxconn=5)` per instance. Scale to min=0 max=1 before touching the DB to avoid connection races during reset.
-
-```bash
-gcloud run services update gdpr-scanner-consumer \
-  --min-instances=0 --max-instances=1 \
-  --project=summer-bond-461608-i5 --region=us-central1
-```
-
-### 3. Truncate the drive_files table
+### 1. Truncate the drive_files table
 
 ```bash
 PGPASSWORD='Prototype123!' psql -h 104.197.163.23 -U postgres -d postgres -c "TRUNCATE TABLE drive_files;"
@@ -68,15 +47,7 @@ PGPASSWORD='Prototype123!' psql -h 104.197.163.23 -U postgres -d postgres \
   -c "UPDATE drive_files SET status_flag = 'not_checked' WHERE status_flag != 'not_checked';"
 ```
 
-### 7. Scale scanner consumer back up
-
-```bash
-gcloud run services update gdpr-scanner-consumer \
-  --min-instances=1 --max-instances=8 \
-  --project=summer-bond-461608-i5 --region=us-central1
-```
-
-### 8. Trigger the extraction job (queues all not_checked files to Pub/Sub)
+### 7. Trigger the extraction job (queues all not_checked files to Pub/Sub)
 
 ```bash
 gcloud run jobs execute gdpr-extraction-job \
@@ -96,22 +67,39 @@ All rows start as `not_checked`; they transition to `flagged` / `not_flagged` as
 
 ### Correctness check (run after all rows are scanned)
 
-Ground truth is inferred from the file name: `internal_memo_*` files are clean (expected `not_flagged`); all others contain PII (expected `flagged`).
+Ground truth is inferred from file name: `internal_memo_*` = clean (expected `not_flagged`); everything else = PII (expected `flagged`).
 
 ```bash
 PGPASSWORD='Prototype123!' psql -h 104.197.163.23 -U postgres -d postgres -c "
 SELECT
-  SUM(CASE WHEN name NOT LIKE 'internal_memo_%' AND status_flag = 'flagged'     THEN 1 ELSE 0 END) AS tp,
-  SUM(CASE WHEN name     LIKE 'internal_memo_%' AND status_flag = 'not_flagged' THEN 1 ELSE 0 END) AS tn,
-  SUM(CASE WHEN name     LIKE 'internal_memo_%' AND status_flag = 'flagged'     THEN 1 ELSE 0 END) AS fp,
-  SUM(CASE WHEN name NOT LIKE 'internal_memo_%' AND status_flag = 'not_flagged' THEN 1 ELSE 0 END) AS fn,
-  COUNT(*) FILTER (WHERE status_flag IN ('flagged','not_flagged'))               AS total_scanned,
-  COUNT(*) FILTER (WHERE status_flag = 'not_checked')                            AS pending
+  SUM(CASE WHEN name NOT LIKE 'internal_memo_%' AND status_flag = 'flagged'     THEN 1 ELSE 0 END) AS \"Correct PII detections (TP)\",
+  SUM(CASE WHEN name     LIKE 'internal_memo_%' AND status_flag = 'not_flagged' THEN 1 ELSE 0 END) AS \"Correct clean files (TN)\",
+  SUM(CASE WHEN name     LIKE 'internal_memo_%' AND status_flag = 'flagged'     THEN 1 ELSE 0 END) AS \"Clean files wrongly flagged (FP)\",
+  SUM(CASE WHEN name NOT LIKE 'internal_memo_%' AND status_flag = 'not_flagged' THEN 1 ELSE 0 END) AS \"PII files missed (FN)\",
+  ROUND(100.0 * SUM(CASE WHEN name NOT LIKE 'internal_memo_%' AND status_flag = 'flagged'     THEN 1 ELSE 0 END)
+    / NULLIF(SUM(CASE WHEN status_flag = 'flagged' THEN 1 ELSE 0 END), 0), 1)   AS \"Precision %\",
+  ROUND(100.0 * SUM(CASE WHEN name NOT LIKE 'internal_memo_%' AND status_flag = 'flagged'     THEN 1 ELSE 0 END)
+    / NULLIF(SUM(CASE WHEN name NOT LIKE 'internal_memo_%' THEN 1 ELSE 0 END), 0), 1) AS \"Recall %\",
+  COUNT(*) FILTER (WHERE status_flag IN ('flagged','not_flagged')) AS \"Total scanned\",
+  COUNT(*) FILTER (WHERE status_flag = 'not_checked')             AS \"Still pending\"
 FROM drive_files;
 "
 ```
 
-Derived metrics:
-- **Precision** = tp / (tp + fp)
-- **Recall**    = tp / (tp + fn)
-- **F1**        = 2 × precision × recall / (precision + recall)
+### Detection stage breakdown (run after all rows are scanned)
+
+Shows how many files were caught by each detector stage.
+
+```bash
+PGPASSWORD='Prototype123!' psql -h 104.197.163.23 -U postgres -d postgres -c "
+SELECT
+  detection_stage                                           AS \"Detected by\",
+  COUNT(*)                                                  AS \"Files\",
+  SUM(CASE WHEN status_flag = 'flagged'     THEN 1 ELSE 0 END) AS \"Flagged as PII\",
+  SUM(CASE WHEN status_flag = 'not_flagged' THEN 1 ELSE 0 END) AS \"Flagged as clean\"
+FROM drive_files
+WHERE detection_stage IS NOT NULL
+GROUP BY detection_stage
+ORDER BY \"Files\" DESC;
+"
+```

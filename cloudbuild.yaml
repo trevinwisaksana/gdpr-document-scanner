@@ -22,8 +22,8 @@ steps:
       - --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/gdpr-scanner-consumer:$COMMIT_SHA
       - --region=us-central1
       - --no-allow-unauthenticated
-      - --min-instances=3
-      - --max-instances=10
+      - --min-instances=20
+      - --max-instances=20
       - --concurrency=100
 
 images:
