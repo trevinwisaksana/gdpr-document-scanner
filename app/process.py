@@ -8,6 +8,7 @@ is invoked (stub — wire in your own logic).
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -75,6 +76,7 @@ class ScanResult:
 def scan_text(text: str, file_id: str, config: RegexDetectorConfig | None = None) -> ScanResult:
     """Run the PII detector on already-extracted *text*."""
     import time
+    skip_llm = os.environ.get("SKIP_LLM", "").lower() in ("1", "true")
     t_total = time.perf_counter()
     timings: dict[str, float] = {}
     stage = "regex"
@@ -91,22 +93,25 @@ def scan_text(text: str, file_id: str, config: RegexDetectorConfig | None = None
             timings["ner_ms"] = round((time.perf_counter() - t0) * 1000, 1)
             stage = "ner"
 
-            high_conf = [f for f in ner_findings if (f.get("confidence") or 0) >= 0.9]
-            low_conf  = [f for f in ner_findings if (f.get("confidence") or 0) <  0.9]
-
-            if low_conf:
-                t0 = time.perf_counter()
-                verified = llm_verify_findings(text, low_conf)
-                timings["llm_verify_ms"] = round((time.perf_counter() - t0) * 1000, 1)
-                stage = "ner+llm_verify"
+            if skip_llm:
+                findings = ner_findings
             else:
-                verified = []
+                high_conf = [f for f in ner_findings if (f.get("confidence") or 0) >= 0.9]
+                low_conf  = [f for f in ner_findings if (f.get("confidence") or 0) <  0.9]
 
-            findings = high_conf + verified
+                if low_conf:
+                    t0 = time.perf_counter()
+                    verified = llm_verify_findings(text, low_conf)
+                    timings["llm_verify_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+                    stage = "ner+llm_verify"
+                else:
+                    verified = []
+
+                findings = high_conf + verified
         except Exception:
             logger.warning("NER fallback failed", extra={"file": file_id})
 
-    if not findings:
+    if not findings and not skip_llm:
         t0 = time.perf_counter()
         findings = llm_detect_pii(text)
         timings["llm_detect_ms"] = round((time.perf_counter() - t0) * 1000, 1)

@@ -2,25 +2,29 @@ steps:
   - name: "gcr.io/cloud-builders/docker"
     args:
       - build
+      - -f
+      - Dockerfile.scanner
       - -t
-      - us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/$REPO_NAME:$COMMIT_SHA
+      - us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/gdpr-scanner-consumer:$COMMIT_SHA
       - .
 
   - name: "gcr.io/cloud-builders/docker"
     args:
       - push
-      - us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/$REPO_NAME:$COMMIT_SHA
+      - us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/gdpr-scanner-consumer:$COMMIT_SHA
 
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: gcloud
     args:
       - run
       - deploy
-      - $REPO_NAME
-      - --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/$REPO_NAME:$COMMIT_SHA
+      - gdpr-scanner-consumer
+      - --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/gdpr-scanner-consumer:$COMMIT_SHA
       - --region=us-central1
-      - --allow-unauthenticated
-      - --set-env-vars=ALLOWED_ORIGINS=*
+      - --no-allow-unauthenticated
+      - --min-instances=3
+      - --max-instances=10
+      - --concurrency=100
 
 images:
-  - us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/$REPO_NAME:$COMMIT_SHA
+  - us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/gdpr-scanner-consumer:$COMMIT_SHA
