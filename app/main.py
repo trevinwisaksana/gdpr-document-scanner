@@ -1,34 +1,49 @@
-"""FastAPI entrypoint for document scanning."""
+"""
+FastAPI entry point for the GDPR document scanner service.
+Exposes workflow endpoints that trigger the Drive scanning pipeline.
+"""
+
 from __future__ import annotations
 
 import json
 import logging
 import os
+from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from google.cloud import pubsub_v1
 from pydantic import BaseModel, Field
 
-from app.gdrive_downloader import GDriveDownloader
 from app.gdrive_extractor import GDriveLister
 from app.process import ScanResult, scan_text
 from detectors.regex import RegexDetectorConfig
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(message)s",
-)
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="GDPR Document Scanner", version="1.0.0")
+_publisher: pubsub_v1.PublisherClient | None = None
 
-allowed_origins = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "*").split(",") if origin.strip()]
-allow_credentials = allowed_origins != ["*"]
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _publisher
+    _publisher = pubsub_v1.PublisherClient()
+    logger.info(json.dumps({"event": "api_startup", "service": "gdpr-document-scanner"}))
+    yield
+    if _publisher:
+        _publisher.close()
+    logger.info(json.dumps({"event": "api_shutdown", "service": "gdpr-document-scanner"}))
+
+
+app = FastAPI(title="GDPR Document Scanner", version="1.0.0", lifespan=lifespan)
+
+allowed_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins if allowed_origins != ["*"] else ["*"],
-    allow_credentials=allow_credentials,
+    allow_credentials=allowed_origins != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -59,24 +74,10 @@ class ScanTextResponse(BaseModel):
     has_pii: bool
 
 
-class DriveWorkflowRequest(BaseModel):
-    max_files: int | None = Field(default=None, ge=1)
-
-
-class DriveWorkflowItem(BaseModel):
-    file_id: str
-    name: str
-    mime_type: str
-    has_pii: bool
-    findings: list[dict[str, Any]]
-
-
 class DriveWorkflowResponse(BaseModel):
-    listed_files: int
-    processed_files: int
-    with_pii: int
-    clean: int
-    results: list[DriveWorkflowItem]
+    files_queued: int
+    failed: int
+    status: str
 
 
 def _to_config(config: RegexConfigPayload | None) -> RegexDetectorConfig | None:
@@ -93,55 +94,6 @@ def _to_response(result: ScanResult) -> ScanTextResponse:
     )
 
 
-@app.on_event("startup")
-def startup() -> None:
-    logger.info(json.dumps({"event": "api_startup", "service": "gdpr-document-scanner"}))
-
-
-@app.on_event("shutdown")
-def shutdown() -> None:
-    logger.info(json.dumps({"event": "api_shutdown", "service": "gdpr-document-scanner"}))
-
-
-def run_drive_workflow(max_files: int | None = None) -> DriveWorkflowResponse:
-    lister = GDriveLister()
-    downloader = GDriveDownloader()
-
-    results: list[DriveWorkflowItem] = []
-    listed_files = 0
-
-    for file_info in lister.list_files():
-        if max_files is not None and len(results) >= max_files:
-            break
-        listed_files += 1
-
-        text = downloader.download_and_extract(
-            file_info["file_id"],
-            file_info["mime_type"],
-            file_info["name"],
-        )
-        scan_result = scan_text(text, file_info["file_id"])
-        results.append(
-            DriveWorkflowItem(
-                file_id=file_info["file_id"],
-                name=file_info["name"],
-                mime_type=file_info["mime_type"],
-                has_pii=scan_result.has_pii,
-                findings=scan_result.findings,
-            )
-        )
-
-    with_pii = sum(1 for item in results if item.has_pii)
-    clean = len(results) - with_pii
-    return DriveWorkflowResponse(
-        listed_files=listed_files,
-        processed_files=len(results),
-        with_pii=with_pii,
-        clean=clean,
-        results=results,
-    )
-
-
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -154,5 +106,26 @@ def scan_text_endpoint(payload: ScanTextRequest) -> ScanTextResponse:
 
 
 @app.post("/workflows/drive/scan", response_model=DriveWorkflowResponse)
-def run_drive_workflow_endpoint(payload: DriveWorkflowRequest) -> DriveWorkflowResponse:
-    return run_drive_workflow(payload.max_files)
+def trigger_drive_scan() -> DriveWorkflowResponse:
+    """List all accessible Drive files and enqueue each for extraction and PII scanning."""
+    topic = os.environ.get("PUBSUB_TOPIC")
+    if not topic:
+        raise HTTPException(status_code=500, detail="PUBSUB_TOPIC not configured")
+    if _publisher is None:
+        raise HTTPException(status_code=503, detail="publisher not ready")
+
+    lister = GDriveLister()
+    queued = 0
+    failed = 0
+
+    for file in lister.list_files():
+        try:
+            _publisher.publish(topic, json.dumps(file).encode()).result()
+            queued += 1
+            logger.info("queued file_id=%s name=%r", file["file_id"], file["name"])
+        except Exception as exc:
+            logger.error("publish failed file_id=%s error=%s", file["file_id"], exc)
+            failed += 1
+
+    logger.info("scan trigger complete queued=%d failed=%d", queued, failed)
+    return DriveWorkflowResponse(files_queued=queued, failed=failed, status="ok")
