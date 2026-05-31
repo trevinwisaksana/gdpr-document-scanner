@@ -31,6 +31,20 @@ SUPPORTED_MIME: dict[str, str] = {
     "text/csv": ".csv",
     "text/html": ".html",
     "application/rtf": ".rtf",
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/tiff": ".tiff",
+    "image/bmp": ".bmp",
+    "image/webp": ".webp",
+    "video/mp4": ".mp4",
+    "video/quicktime": ".mov",
+    "video/x-msvideo": ".avi",
+    "video/x-matroska": ".mkv",
+    "video/webm": ".webm",
+    "video/mpeg": ".mpeg",
+    "video/3gpp": ".3gp",
+    "video/3gpp2": ".3g2",
 }
 
 

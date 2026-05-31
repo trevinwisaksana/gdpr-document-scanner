@@ -23,12 +23,13 @@ class GDriveLister:
                 .execute()
             )
             for f in resp.get("files", []):
-                if f["mimeType"] in GOOGLE_EXPORT or f["mimeType"] in SUPPORTED_MIME:
+                mime_type = f["mimeType"]
+                if mime_type in GOOGLE_EXPORT or mime_type in SUPPORTED_MIME or mime_type.startswith("video/"):
                     owners = f.get("owners", [])
                     yield {
                         "file_id": f["id"],
                         "name": f["name"],
-                        "mime_type": f["mimeType"],
+                        "mime_type": mime_type,
                         "modified_time": f.get("createdTime"),
                         "owner": owners[0].get("emailAddress") if owners else None,
                         "deleted": f.get("trashed", False),
