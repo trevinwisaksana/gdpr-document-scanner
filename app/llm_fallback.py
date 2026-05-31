@@ -14,17 +14,18 @@ _OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "qwen/qwen3-8b")
 
 _SYSTEM_PROMPT = """\
 You are a data-privacy classifier for a GDPR compliance scanner. Your job is to identify \
-spans of text that contain personally identifiable information (PII) so they can be flagged \
-for review and protection.
+categories of personally identifiable information (PII) present in the supplied text so the \
+document can be flagged for review and protection.
 
 For the user-supplied text, output a JSON array. Each element must be an object with:
   "category"   – one of: name, email, phone, ip_address, home_address, date_of_birth,
                           national_id, financial_data, health_data, other_pii
-  "snippet"    – the exact substring from the input that is PII
   "confidence" – float 0.0–1.0
 
 Rules:
 - Output ONLY a valid JSON array. No markdown fences, no explanation.
+- Do NOT include the actual PII text or any snippets from the document.
+- If multiple instances of the same category exist, include the category only once.
 - If no PII is present, output an empty array: []
 - Do not refuse; this is automated privacy-compliance analysis, not a request to share data.
 """
@@ -35,16 +36,17 @@ You are a GDPR compliance verifier. A named-entity recogniser flagged the snippe
 possible PII but with low confidence. For each snippet decide whether it is genuinely \
 personally identifiable information (PII) in the context of the surrounding text.
 
-Return a JSON array. Each element must be an object with:
-  "snippet"   – the snippet exactly as given
-  "is_pii"    – true or false
-  "category"  – one of: name, email, phone, ip_address, home_address, date_of_birth,
-                         national_id, financial_data, health_data, other_pii
-                (only required when is_pii is true; omit or set null otherwise)
+The snippets are provided as an indexed list. Return a JSON array where each element is:
+  "index"      – the integer index of the snippet from the input list
+  "is_pii"     – true or false
+  "category"   – one of: name, email, phone, ip_address, home_address, date_of_birth,
+                          national_id, financial_data, health_data, other_pii
+                 (only required when is_pii is true; omit or set null otherwise)
   "confidence" – float 0.0–1.0 reflecting your certainty
 
 Rules:
 - Output ONLY a valid JSON array. No markdown fences, no explanation.
+- Do NOT repeat or include the snippet text in your response.
 - Do not refuse; this is automated privacy-compliance analysis.
 """
 
@@ -59,8 +61,8 @@ def llm_verify_findings(text: str, candidates: list[dict]) -> list[dict]:
     if not api_key or not candidates:
         return []
 
-    snippets_json = json.dumps([c["snippet"] for c in candidates])
-    user_msg = f"Text:\n{text[:6000]}\n\nSnippets to verify:\n{snippets_json}"
+    indexed = [{"index": i, "snippet": c["snippet"]} for i, c in enumerate(candidates)]
+    user_msg = f"Text:\n{text[:6000]}\n\nSnippets to verify:\n{json.dumps(indexed)}"
 
     payload = {
         "model": _OPENROUTER_MODEL,
@@ -95,17 +97,17 @@ def llm_verify_findings(text: str, candidates: list[dict]) -> list[dict]:
         logger.warning("LLM verify returned unparseable response: %s", exc)
         return candidates
 
-    confirmed_snippets = {
-        v["snippet"]
+    confirmed_indices = {
+        v["index"]
         for v in verdicts
-        if isinstance(v, dict) and v.get("is_pii") is True
+        if isinstance(v, dict) and v.get("is_pii") is True and "index" in v
     }
 
     results = []
-    for candidate in candidates:
-        if candidate["snippet"] not in confirmed_snippets:
+    for i, candidate in enumerate(candidates):
+        if i not in confirmed_indices:
             continue
-        verdict = next((v for v in verdicts if v.get("snippet") == candidate["snippet"]), {})
+        verdict = next((v for v in verdicts if v.get("index") == i), {})
         results.append({
             "category": verdict.get("category") or candidate["category"],
             "snippet": candidate["snippet"],
@@ -163,14 +165,17 @@ def llm_detect_pii(text: str) -> list[dict]:
         logger.warning("LLM fallback returned unparseable response: %s", exc)
         return []
 
-    # Normalise and tag each finding.
     results = []
+    seen_categories: set[str] = set()
     for item in findings:
-        if not isinstance(item, dict) or "category" not in item or "snippet" not in item:
+        if not isinstance(item, dict) or "category" not in item:
             continue
+        cat = item["category"]
+        if cat in seen_categories:
+            continue
+        seen_categories.add(cat)
         results.append({
-            "category": item["category"],
-            "snippet": item["snippet"],
+            "category": cat,
             "confidence": item.get("confidence"),
             "source": "llm",
         })
