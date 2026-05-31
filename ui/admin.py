@@ -4,10 +4,13 @@ from __future__ import annotations
 import time
 
 import pandas as pd
+import requests
 import streamlit as st
 
 from scanner import escalate, gdpr, scan, seed, store
 from ui import shell
+
+CLOUD_SCAN_URL = "https://gdpr-document-scanner-lotcfrcujq-uc.a.run.app/workflows/drive/scan"
 
 
 def render(user) -> None:
@@ -42,16 +45,29 @@ def _scan_control() -> None:
         '<div class="ae-scan-panel">'
         '<div class="ae-scan-info">'
         '<div class="ae-scan-title">Ready to scan</div>'
-        '<div class="ae-scan-sub">Last full scan completed today. '
-        'Delta scans only re-read changed files.</div>'
+        '<div class="ae-scan-sub">Run against sample files locally, or trigger the live '
+        'Google Drive scan on GCP.</div>'
         '</div>',
         unsafe_allow_html=True,
     )
-    c1, c2, c3 = st.columns([1.2, 1, 1])
-    run_full  = c1.button("▶  Run full scan",  use_container_width=True, type="primary")
-    run_delta = c2.button("⏩  Delta scan",      use_container_width=True)
-    reset     = c3.button("↻  Reset demo",      use_container_width=True)
+    c1, c2, c3, c4 = st.columns([1.4, 1, 1, 1.2])
+    run_gdrive = c1.button("☁️  Scan Google Drive", use_container_width=True, type="primary")
+    run_full   = c2.button("▶  Full scan",          use_container_width=True)
+    run_delta  = c3.button("⏩  Delta scan",          use_container_width=True)
+    reset      = c4.button("↻  Reset demo",          use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
+
+    if run_gdrive:
+        with st.spinner("Triggering Google Drive scan on GCP…"):
+            try:
+                r = requests.post(CLOUD_SCAN_URL, timeout=15)
+                data = r.json()
+                st.success(
+                    f"GCP scan complete — {data.get('processed_files', '?')} files scanned, "
+                    f"{data.get('with_pii', '?')} flagged."
+                )
+            except Exception as e:
+                st.error(f"Failed to reach GCP endpoint: {e}")
 
     if run_full:
         _run("full")
