@@ -15,3 +15,9 @@ venv
 dist
 build
 *.log
+.idea/
+.junie/
+sample-data/
+tests/
+test_local.py
+test_pubsub.py

@@ -20,6 +20,7 @@ steps:
       - --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/$REPO_NAME:$COMMIT_SHA
       - --region=us-central1
       - --allow-unauthenticated
+      - --set-env-vars=ALLOWED_ORIGINS=*
 
 images:
   - us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/$REPO_NAME:$COMMIT_SHA

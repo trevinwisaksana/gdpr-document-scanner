@@ -1,9 +1,13 @@
 """FastAPI entrypoint for document scanning."""
 from __future__ import annotations
 
+import json
+import logging
+import os
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from app.gdrive_downloader import GDriveDownloader
@@ -11,7 +15,23 @@ from app.gdrive_extractor import GDriveLister
 from app.process import ScanResult, scan_text
 from detectors.regex import RegexDetectorConfig
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(message)s",
+)
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="GDPR Document Scanner", version="1.0.0")
+
+allowed_origins = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "*").split(",") if origin.strip()]
+allow_credentials = allowed_origins != ["*"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins if allowed_origins != ["*"] else ["*"],
+    allow_credentials=allow_credentials,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class RegexConfigPayload(BaseModel):
@@ -71,6 +91,16 @@ def _to_response(result: ScanResult) -> ScanTextResponse:
         findings=result.findings,
         has_pii=result.has_pii,
     )
+
+
+@app.on_event("startup")
+def startup() -> None:
+    logger.info(json.dumps({"event": "api_startup", "service": "gdpr-document-scanner"}))
+
+
+@app.on_event("shutdown")
+def shutdown() -> None:
+    logger.info(json.dumps({"event": "api_shutdown", "service": "gdpr-document-scanner"}))
 
 
 def run_drive_workflow(max_files: int | None = None) -> DriveWorkflowResponse:
