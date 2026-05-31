@@ -9,10 +9,9 @@ import json
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException
-from typing import Literal
 from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import pubsub_v1
 from pydantic import BaseModel, Field
