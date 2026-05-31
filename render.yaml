@@ -1,7 +1,7 @@
 services:
   # FastAPI — REST API for the GDPR scanner
   - type: web
-    name: gdpr-scanner-api
+    name: dashboard-http
     runtime: docker
     dockerfilePath: ./Dockerfile
     plan: free
