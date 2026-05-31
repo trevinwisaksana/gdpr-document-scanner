@@ -14,6 +14,8 @@ Optional env vars:
 import json
 import logging
 import os
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import psycopg2
 import psycopg2.pool
@@ -23,6 +25,20 @@ from app.process import scan_text
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
+
+
+def _start_health_server() -> None:
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+        def log_message(self, *args):
+            pass
+
+    port = int(os.environ.get("PORT", "8080"))
+    HTTPServer(("", port), Handler).serve_forever()
 
 _ENSURE_SCHEMA = """
 CREATE INDEX IF NOT EXISTS idx_drive_files_owner ON drive_files (owner);
@@ -51,6 +67,7 @@ def _ensure_schema(pool: psycopg2.pool.ThreadedConnectionPool) -> None:
 
 
 def main() -> None:
+    threading.Thread(target=_start_health_server, daemon=True).start()
     subscription = os.environ["PUBSUB_SUBSCRIPTION"]
     database_url = os.environ["DATABASE_URL"]
     max_messages = int(os.environ.get("MAX_MESSAGES", "10"))

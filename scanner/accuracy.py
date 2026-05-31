@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core.ingestion import extract_text
+from app.file_reader import extract_text
 from scanner import detectors, gdpr
 
 # (category, expected snippet substring) per file. Labeled by hand from the rendered PDFs.

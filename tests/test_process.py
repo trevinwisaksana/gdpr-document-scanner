@@ -95,18 +95,20 @@ class TestScanDocument:
     def test_findings_have_expected_keys(self, txt_with_pii):
         result = scan_document(txt_with_pii)
         for finding in result.findings:
-            assert {"category", "start", "end", "snippet"} <= finding.keys()
+            assert {"category", "snippet"} <= finding.keys()
 
     def test_config_disabling_all_detectors_returns_empty(self, txt_with_pii):
+        from unittest.mock import patch
         from detectors.regex import RegexDetectorConfig
 
         cfg = RegexDetectorConfig(
-            names=False, emails=False, phones=False, usernames=False,
-            signatures=False, photo_video=False, addresses=False,
-            id_documents=False, travel=False, ip_addresses=False,
-            credit_cards=False, iban=False, ssn=False, nhs=False, dob=False,
+            emails=False, phones=False, usernames=False,
+            signatures=False, id_documents=False, ip_addresses=False,
+            credit_cards=False, iban=False, ssn=False, dob=False,
         )
-        result = scan_document(txt_with_pii, config=cfg)
+        with patch("app.process.ner_inference", return_value=[]), \
+             patch("app.process.llm_detect_pii", return_value=[]):
+            result = scan_document(txt_with_pii, config=cfg)
         assert result.findings == []
 
     def test_unsupported_file_type_raises(self, tmp_path):

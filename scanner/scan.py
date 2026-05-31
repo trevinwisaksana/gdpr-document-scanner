@@ -16,7 +16,7 @@ import uuid
 from pathlib import Path
 from typing import Callable, Optional
 
-from core.ingestion import extract_text
+from app.file_reader import extract_text
 from scanner import detectors, escalate, ownership, store
 
 SCAN_TARGET_DIR = os.getenv("SCAN_TARGET_DIR", "./sample-data")
