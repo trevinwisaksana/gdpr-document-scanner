@@ -143,54 +143,41 @@ def test_scan_text_endpoint_maps_payload_to_scanner():
     assert config.phones is False
 
 
-def test_drive_workflow_endpoint_runs_listing_download_and_scan():
+def test_drive_workflow_endpoint_queues_files_to_pubsub():
     files = [
-        {"file_id": "f-1", "name": "alpha.pdf", "mime_type": "application/pdf"},
-        {"file_id": "f-2", "name": "beta.txt", "mime_type": "text/plain"},
-    ]
-    scan_results = [
-        ScanResult(file_path="f-1", findings=[{"category": "email", "snippet": "a@b.com", "source": "regex"}]),
-        ScanResult(file_path="f-2", findings=[]),
+        {"file_id": "f-1", "name": "alpha.pdf"},
+        {"file_id": "f-2", "name": "beta.txt"},
     ]
 
     class FakeLister:
         def list_files(self):
             return iter(files)
 
-    class FakeDownloader:
-        def download_and_extract(self, file_id, mime_type, file_name):
-            return f"text-for-{file_id}-{mime_type}-{file_name}"
+    class FakePublisher:
+        def __init__(self):
+            self.published = []
+
+        def publish(self, topic, data):
+            self.published.append(data)
+
+            class FakeFuture:
+                def result(self_):
+                    return None
+
+            return FakeFuture()
+
+    fake_publisher = FakePublisher()
 
     with (
-        patch("app.main.GDriveLister", return_value=FakeLister()) as mock_lister,
-        patch("app.main.GDriveDownloader", return_value=FakeDownloader()) as mock_downloader,
-        patch("app.main.scan_text", side_effect=scan_results) as mock_scan,
+        patch("app.main.GDriveLister", return_value=FakeLister()),
+        patch("app.main._publisher", fake_publisher),
+        patch.dict("os.environ", {"PUBSUB_TOPIC": "projects/test/topics/test"}),
     ):
-        response = client.post("/workflows/drive/scan", json={"max_files": 2})
+        response = client.post("/workflows/drive/scan")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "listed_files": 2,
-        "processed_files": 2,
-        "with_pii": 1,
-        "clean": 1,
-        "results": [
-            {
-                "file_id": "f-1",
-                "name": "alpha.pdf",
-                "mime_type": "application/pdf",
-                "has_pii": True,
-                "findings": scan_results[0].findings,
-            },
-            {
-                "file_id": "f-2",
-                "name": "beta.txt",
-                "mime_type": "text/plain",
-                "has_pii": False,
-                "findings": [],
-            },
-        ],
-    }
-    mock_lister.assert_called_once()
-    mock_downloader.assert_called_once()
-    assert mock_scan.call_count == 2
+    body = response.json()
+    assert body["files_queued"] == 2
+    assert body["failed"] == 0
+    assert body["status"] == "ok"
+    assert len(fake_publisher.published) == 2
