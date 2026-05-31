@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS findings (
     detector        TEXT NOT NULL,
     gdpr_articles   TEXT NOT NULL,            -- JSON list
     status          TEXT NOT NULL DEFAULT 'open'
-                    CHECK (status IN ('open','confirmed_required','marked_for_deletion')),
+                    CHECK (status IN ('open','keep','delete','false_positive')),
     created_at      REAL NOT NULL
 );
 
@@ -224,9 +224,10 @@ def findings_for_file(file_id_: str) -> list[sqlite3.Row]:
         ).fetchall()
 
 
-def set_finding_status(finding_id_: str, status: str) -> None:
+def set_finding_status(finding_id_: str, status: str) -> bool:
     with connect() as conn:
-        conn.execute("UPDATE findings SET status=? WHERE id=?", (status, finding_id_))
+        cursor = conn.execute("UPDATE findings SET status=? WHERE id=?", (status, finding_id_))
+        return cursor.rowcount > 0
 
 
 def category_breakdown() -> list[sqlite3.Row]:

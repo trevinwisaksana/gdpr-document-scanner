@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from typing import Literal
 from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import pubsub_v1
 from pydantic import BaseModel, Field
@@ -123,6 +124,22 @@ class KPIFlaggedByOwnerResponse(BaseModel):
     items: list[KPIFlaggedByOwnerItem]
 
 
+class FindingActionRequest(BaseModel):
+    action: Literal["confirm_delete", "keep", "false_positive"]
+
+
+class FindingActionResponse(BaseModel):
+    finding_id: str
+    status: str
+
+
+_ACTION_TO_STATUS: dict[str, str] = {
+    "confirm_delete": "delete",
+    "keep": "keep",
+    "false_positive": "false_positive",
+}
+
+
 def _to_config(config: RegexConfigPayload | None) -> RegexDetectorConfig | None:
     if config is None:
         return None
@@ -203,6 +220,16 @@ def list_flagged_files(user_id: str) -> FlaggedFilesResponse:
         for row in rows
     ]
     return FlaggedFilesResponse(user_id=user_id, total=len(files), files=files)
+
+
+@app.patch("/findings/{finding_id}/status", response_model=FindingActionResponse)
+def update_finding_status(finding_id: str, payload: FindingActionRequest) -> FindingActionResponse:
+    store.init_db()
+    status = _ACTION_TO_STATUS[payload.action]
+    updated = store.set_finding_status(finding_id, status)
+    if not updated:
+        raise HTTPException(status_code=404, detail="finding not found")
+    return FindingActionResponse(finding_id=finding_id, status=status)
 
 
 @app.post("/workflows/drive/scan", response_model=DriveWorkflowResponse)
