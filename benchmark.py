@@ -7,7 +7,11 @@ Benchmarks the actual production pipeline used by the scanner consumer:
   3. Full pipeline  (+ LLM verify / LLM fallback via OpenRouter/Qwen)
 
 Usage:
-    python benchmark.py [--dataset ~/Desktop/test_dataset] [--sample N] [--no-llm] [--no-ner]
+    # Run against staging Google Drive (1036 files)
+    python benchmark.py --staging [--sample N] [--no-llm] [--no-ner]
+
+    # Run against local test dataset
+    python benchmark.py --dataset ~/Desktop/test_dataset [--sample N]
 
 Output:
     benchmark_results.json  — raw per-file data
@@ -65,7 +69,7 @@ def collect_files(dataset_dir: Path) -> tuple[list[Path], list[Path]]:
             continue
         if p.suffix.lower() not in {".txt", ".pdf", ".docx", ".xlsx", ".csv", ".pptx"}:
             continue
-        (clean if "clean_control" in str(p) else pii).append(p)
+        (clean if p.stem.startswith("internal_memo_") else pii).append(p)
     return pii, clean
 
 
@@ -192,37 +196,121 @@ def print_report(results: list[dict], dataset_dir: Path, out_path: Path) -> None
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
+def collect_staging_files(sample: int = 0) -> tuple[list[dict], list[dict]]:
+    """List files from staging Google Drive. Returns (pii_files, clean_files)."""
+    from app.gdrive_extractor import GDriveLister
+
+    print("Listing files from staging Google Drive ...")
+    lister = GDriveLister()
+    all_files = list(lister.list_files())
+    print(f"Found {len(all_files)} files in Drive.")
+
+    pii = [f for f in all_files if not Path(f["name"]).stem.startswith("internal_memo_")]
+    clean = [f for f in all_files if Path(f["name"]).stem.startswith("internal_memo_")]
+
+    if sample and sample < len(pii):
+        random.seed(99)
+        pii = random.sample(pii, sample)
+
+    return pii, clean
+
+
+def benchmark_detector_staging(name: str, run_fn, pii_files: list[dict], clean_files: list[dict]) -> dict:
+    """Benchmark against staging Drive files (downloaded on the fly)."""
+    from app.gdrive_downloader import GDriveDownloader
+    downloader = GDriveDownloader()
+
+    total_tp = total_fp = total_fn = errors = 0
+    times, per_file = [], []
+
+    for f, is_pii in [(f, True) for f in pii_files] + [(f, False) for f in clean_files]:
+        try:
+            text = downloader.download_and_extract(f["file_id"], f["mime_type"], f["name"])
+        except Exception as e:
+            print(f"  [skip] {f['name']}: {e}")
+            errors += 1
+            continue
+
+        t0 = time.perf_counter()
+        try:
+            findings = run_fn(text)
+        except Exception as e:
+            errors += 1
+            continue
+        elapsed = time.perf_counter() - t0
+
+        times.append(elapsed)
+        s = score_file(findings, is_pii=is_pii)
+        total_tp += s["tp"]; total_fn += s["fn"]; total_fp += s["fp"]
+        per_file.append({
+            "file": f["name"], "is_pii": is_pii,
+            "n_findings": s["n_findings"], "tp": s["tp"], "fn": s["fn"], "fp": s["fp"],
+            "time_s": round(elapsed, 4),
+        })
+
+    n = len(times)
+    times_s = sorted(times)
+    precision = total_tp / (total_tp + total_fp) if (total_tp + total_fp) else 0
+    recall    = total_tp / (total_tp + total_fn) if (total_tp + total_fn) else 0
+    f1        = 2 * precision * recall / (precision + recall) if (precision + recall) else 0
+    fpr       = total_fp / len(clean_files) if clean_files else 0
+
+    return {
+        "detector": name,
+        "files_processed": n,
+        "errors": errors,
+        "tp": total_tp, "fp": total_fp, "fn": total_fn,
+        "precision": round(precision, 4),
+        "recall": round(recall, 4),
+        "f1": round(f1, 4),
+        "false_positive_rate": round(fpr, 4),
+        "timing": {
+            "total_s":  round(sum(times), 2),
+            "mean_ms":  round(1000 * sum(times) / n, 1) if n else 0,
+            "p50_ms":   round(1000 * times_s[n // 2], 1) if n else 0,
+            "p95_ms":   round(1000 * times_s[int(n * 0.95)], 1) if n else 0,
+            "p99_ms":   round(1000 * times_s[int(n * 0.99)], 1) if n else 0,
+        },
+        "per_file": per_file,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--staging", action="store_true", help="Pull files from staging Google Drive")
     parser.add_argument("--dataset", default=os.path.expanduser("~/Desktop/test_dataset"))
     parser.add_argument("--sample", type=int, default=0, help="Sample N PII files (0 = all)")
     parser.add_argument("--no-llm", action="store_true")
     parser.add_argument("--no-ner", action="store_true")
     args = parser.parse_args()
 
+    # ── file collection ───────────────────────────────────────────────────────
     dataset_dir = Path(args.dataset)
     if not dataset_dir.exists():
         sys.exit(f"Dataset not found: {dataset_dir}")
 
-    print(f"Collecting files from {dataset_dir} ...")
-    pii_files, clean_files = collect_files(dataset_dir)
-
+    _, clean_files = collect_files(dataset_dir)
     if not clean_files:
         print("Generating 50 clean control files ...")
         clean_files = generate_clean_files(dataset_dir)
 
-    if args.sample and args.sample < len(pii_files):
-        random.seed(99)
-        pii_files = random.sample(pii_files, args.sample)
-
-    print(f"PII files  : {len(pii_files)}")
-    print(f"Clean files: {len(clean_files)}\n")
+    if args.staging:
+        drive_files = collect_staging_files(sample=args.sample)
+        print(f"PII files  : {len(drive_files)}  (from staging Drive)")
+        print(f"Clean files: {len(clean_files)}  (from {dataset_dir})\n")
+    else:
+        _, pii_files_all = [], []
+        pii_files, _ = collect_files(dataset_dir)
+        if args.sample and args.sample < len(pii_files):
+            random.seed(99)
+            pii_files = random.sample(pii_files, args.sample)
+        print(f"PII files  : {len(pii_files)}")
+        print(f"Clean files: {len(clean_files)}\n")
 
     detectors = [("Regex", run_regex)]
 
     if not args.no_ner:
-        ner_key = os.getenv("NER_SUBSCRIPTION_KEY", "")
-        if ner_key:
+        if os.getenv("NER_SUBSCRIPTION_KEY"):
             detectors.append(("Regex + Azure NER", run_regex_ner))
         else:
             print("NER_SUBSCRIPTION_KEY not set — skipping NER stage.\n")
@@ -237,7 +325,10 @@ def main() -> None:
     for name, fn in detectors:
         print(f"Running: {name} ...")
         t0 = time.perf_counter()
-        result = benchmark_detector(name, fn, pii_files, clean_files)
+        if args.staging:
+            result = benchmark_detector_staging(name, fn, drive_files, clean_files)
+        else:
+            result = benchmark_detector(name, fn, pii_files, clean_files)
         print(f"  Done in {time.perf_counter()-t0:.1f}s — F1={result['f1']:.1%}  precision={result['precision']:.1%}  recall={result['recall']:.1%}\n")
         all_results.append(result)
 

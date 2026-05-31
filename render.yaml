@@ -1,0 +1,27 @@
+services:
+  # FastAPI — REST API for the GDPR scanner
+  - type: web
+    name: gdpr-scanner-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: ALLOWED_ORIGINS
+        value: "*"
+      - key: PORT
+        value: "8080"
+
+  # Streamlit dashboard — employee + admin UI
+  - type: web
+    name: gdpr-scanner-ui
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
+    envVars:
+      - key: API_BASE_URL
+        # Replace with the URL of gdpr-scanner-api once it is deployed
+        value: https://gdpr-scanner-api.onrender.com
+      - key: ALLOWED_ORIGINS
+        value: "*"

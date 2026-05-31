@@ -12,7 +12,7 @@ load_dotenv()
 import streamlit as st
 
 from scanner import seed, store
-from ui import admin, login, me, shell
+from ui import admin, login, my_files, shell
 
 st.set_page_config(page_title="GDPR Data Discovery", page_icon="🛡️", layout="wide")
 shell.inject_css()
@@ -73,7 +73,7 @@ else:
     if st.session_state.view == "admin" and user["role"] == "admin":
         admin.render(user)
     else:
-        me.render(user)
+        my_files.render(user)
 
 st.markdown(
     '<div class="ae-footer">Prototype — TECHon hackathon · Bosch GDPR challenge. '

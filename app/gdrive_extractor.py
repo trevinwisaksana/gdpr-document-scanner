@@ -1,8 +1,29 @@
 from __future__ import annotations
 
+import json
+import logging
+import os
 from typing import Generator
 
+import psycopg2
+import psycopg2.extras
+from google.cloud import pubsub_v1
 from app.drive_mimes import GOOGLE_EXPORT, SUPPORTED_MIME, build_drive_service
+
+logger = logging.getLogger(__name__)
+
+_UPSERT = """
+INSERT INTO drive_files (file_id, name, mime_type, owner, google_created_at, is_deleted, last_seen_at)
+VALUES %s
+ON CONFLICT (file_id) DO UPDATE SET
+    name = EXCLUDED.name,
+    mime_type = EXCLUDED.mime_type,
+    owner = EXCLUDED.owner,
+    is_deleted = EXCLUDED.is_deleted,
+    last_seen_at = NOW()
+"""
+
+_UPSERT_TEMPLATE = "(%s, %s, %s, %s, %s, %s, NOW())"
 
 
 class GDriveLister:
@@ -33,20 +54,53 @@ class GDriveLister:
                         "modified_time": f.get("createdTime"),
                         "owner": owners[0].get("emailAddress") if owners else "admin@admin.com",
                         "deleted": f.get("trashed", False),
-                        "flag": False,
                     }
             page_token = resp.get("nextPageToken")
             if not page_token:
                 break
 
     def run(self) -> int:
+        database_url = os.environ["DATABASE_URL"]
+        topic = os.environ.get("EXTRACTOR_PUBSUB_TOPIC")
+        publisher = pubsub_v1.PublisherClient() if topic else None
+
+        conn = psycopg2.connect(database_url)
         count = 0
-        for file in self.list_files():
-            # add postgres implementation here: upsert into drive_files
-            # INSERT INTO drive_files (file_id, name, owner, google_created_at, is_deleted, last_seen_at)
-            # VALUES (%s, %s, %s, %s, %s, NOW())
-            # ON CONFLICT (file_id) DO UPDATE SET
-            #     name = EXCLUDED.name, owner = EXCLUDED.owner,
-            #     is_deleted = EXCLUDED.is_deleted, last_seen_at = NOW()
-            count += 1
+        try:
+            batch = list(self.list_files())
+            rows = [
+                (
+                    file["file_id"],
+                    file["name"],
+                    file["mime_type"],
+                    file["owner"],
+                    file["modified_time"],
+                    file["deleted"],
+                )
+                for file in batch
+            ]
+            with conn.cursor() as cur:
+                if rows:
+                    psycopg2.extras.execute_values(cur, _UPSERT, rows, template=_UPSERT_TEMPLATE)
+                count = len(rows)
+            conn.commit()
+            logger.info("upserted %d files into drive_files", count)
+
+            if publisher and topic:
+                futures = [
+                    publisher.publish(
+                        topic,
+                        json.dumps({
+                            "file_id": file["file_id"],
+                            "name": file["name"],
+                            "mime_type": file["mime_type"],
+                        }).encode(),
+                    )
+                    for file in batch
+                ]
+                for f in futures:
+                    f.result()
+                logger.info("published %d messages to %s", len(futures), topic)
+        finally:
+            conn.close()
         return count
