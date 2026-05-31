@@ -74,21 +74,51 @@ class ScanResult:
 
 def scan_text(text: str, file_id: str, config: RegexDetectorConfig | None = None) -> ScanResult:
     """Run the PII detector on already-extracted *text*."""
+    import time
+    t_total = time.perf_counter()
+    timings: dict[str, float] = {}
+    stage = "regex"
+
+    t0 = time.perf_counter()
     findings = detect_pii(text, config)
+    timings["regex_ms"] = round((time.perf_counter() - t0) * 1000, 1)
 
     if not findings:
         try:
+            t0 = time.perf_counter()
             ner_entities = ner_inference(_strip_form_labels(text))
             ner_findings = _ner_to_findings(ner_entities)
+            timings["ner_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+            stage = "ner"
+
             high_conf = [f for f in ner_findings if (f.get("confidence") or 0) >= 0.9]
             low_conf  = [f for f in ner_findings if (f.get("confidence") or 0) <  0.9]
-            verified  = llm_verify_findings(text, low_conf) if low_conf else []
-            findings  = high_conf + verified
+
+            if low_conf:
+                t0 = time.perf_counter()
+                verified = llm_verify_findings(text, low_conf)
+                timings["llm_verify_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+                stage = "ner+llm_verify"
+            else:
+                verified = []
+
+            findings = high_conf + verified
         except Exception:
             logger.warning("NER fallback failed", extra={"file": file_id})
 
     if not findings:
+        t0 = time.perf_counter()
         findings = llm_detect_pii(text)
+        timings["llm_detect_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+        stage = "llm_detect"
+
+    timings["total_ms"] = round((time.perf_counter() - t_total) * 1000, 1)
+
+    logger.info(
+        "scan_metrics file_id=%s stage=%s findings=%d %s",
+        file_id, stage, len(findings),
+        " ".join(f"{k}={v}" for k, v in timings.items()),
+    )
 
     return ScanResult(file_path=file_id, findings=findings)
 

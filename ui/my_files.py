@@ -2,12 +2,29 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 from pathlib import Path
 
+import requests
 import streamlit as st
 
 from scanner import gdpr, scan, store
 from ui import shell
+
+_API_BASE = os.getenv("API_BASE_URL", "https://gdpr-document-scanner-lotcfrcujq-uc.a.run.app")
+logger = logging.getLogger(__name__)
+
+
+def _fetch_flagged_files(user_id: str) -> list[dict]:
+    """Fetch flagged files from the REST API; fall back to direct store access on failure."""
+    try:
+        resp = requests.get(f"{_API_BASE}/users/{user_id}/files", timeout=10)
+        resp.raise_for_status()
+        return resp.json()["files"]
+    except Exception as exc:
+        logger.warning("API unavailable (%s), falling back to store", exc)
+        return [dict(row) for row in store.files_for_user(user_id)]
 
 
 _PRI_ORDER  = {"high": 0, "medium": 1, "low": 2}
@@ -35,7 +52,7 @@ def _file_max_priority(file_id: str) -> str:
 def render(user) -> None:
     shell.navbar("My files", right=shell.esc(user["name"]))
 
-    files = list(store.files_for_user(user["id"]))
+    files = _fetch_flagged_files(user["id"])
     files_with_pri = [(f, _file_max_priority(f["id"])) for f in files]
     files_with_pri.sort(key=lambda x: (_PRI_ORDER[x[1]], -x[0]["n_findings"]))
 
@@ -77,10 +94,23 @@ def render(user) -> None:
         return
 
     for f, pri in files_with_pri:
-        _file_block(f, user, pri)
+        _file_block(f, user, pri, f.get("finding_categories", []))
 
 
-def _file_block(f, user, pri: str = "low") -> None:
+def _category_chips_html(categories: list[str]) -> str:
+    chips = []
+    for cat in categories:
+        color = shell.CATEGORY_COLOR.get(cat, "#7e92a8")
+        chips.append(
+            f'<span style="background:{color}1a;color:{color};border:1px solid {color}55;'
+            f'padding:2px 8px;border-radius:5px;font-size:0.65rem;font-weight:600;'
+            f'font-family:IBM Plex Mono,monospace;white-space:nowrap">'
+            f'{shell.esc(cat)}</span>'
+        )
+    return '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">' + "".join(chips) + "</div>"
+
+
+def _file_block(f, user, pri: str = "low", finding_categories: list[str] | None = None) -> None:
     name = Path(f["path"]).name
     past = scan.is_past_retention(f["last_modified"])
     findings = store.findings_for_file(f["id"])
@@ -127,6 +157,9 @@ def _file_block(f, user, pri: str = "low") -> None:
             + " · modified " + shell.esc(modified) + "</span></div>",
             unsafe_allow_html=True,
         )
+
+        if finding_categories:
+            st.markdown(_category_chips_html(finding_categories), unsafe_allow_html=True)
 
         shell.section_label("Findings")
         for fd in findings:
