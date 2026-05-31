@@ -21,11 +21,12 @@ This is the operational table for Google Drive file metadata and scanner status.
 | `is_deleted` | boolean | Whether Drive marks the file as trashed/deleted. |
 | `last_seen_at` | timestamp | Updated when the scanner consumer processes the file. Used to detect reprocessing. |
 | `status_flag` | text | Scanner state. Current code uses values like `flagged`, `not_flagged`, and `not checked`. |
+| `pii_category` | text | Primary PII category chosen from the scan result, if any. |
 
 ### How the code uses it
 
 - `app/gdrive_extractor.py` produces file metadata with `file_id`, `name`, `mime_type`, `modified_time`, `owner`, `deleted`, and `flag`.
-- `services/scanner_consumer.py` updates `status_flag` and `last_seen_at` using `file_id`.
+- `services/scanner_consumer.py` updates `status_flag`, `pii_category`, and `last_seen_at` using `file_id`.
 - `app/KPR_functions.py` reads KPI values directly from this table.
 - The KPI endpoints in `app/main.py` are live reads from this table.
 

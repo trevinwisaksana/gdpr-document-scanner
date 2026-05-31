@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch, call
 
 import pytest
 
-from app.process import ScanResult, scan_document, process_file, run
+from app.process import ScanResult, scan_document, process_file, run, scan_text
 
 
 # ── fixtures ──────────────────────────────────────────────────────────────────
@@ -97,6 +97,10 @@ class TestScanDocument:
         for finding in result.findings:
             assert {"category", "snippet"} <= finding.keys()
 
+    def test_primary_category_set_from_regex_findings(self, txt_with_pii):
+        result = scan_document(txt_with_pii)
+        assert result.category == "email"
+
     def test_config_disabling_all_detectors_returns_empty(self, txt_with_pii):
         from unittest.mock import patch
         from detectors.regex import RegexDetectorConfig
@@ -110,6 +114,23 @@ class TestScanDocument:
              patch("app.process.llm_detect_pii", return_value=[]):
             result = scan_document(txt_with_pii, config=cfg)
         assert result.findings == []
+        assert result.category is None
+
+    def test_primary_category_uses_highest_confidence_ner_hit(self):
+        text = "Name: Alice Example"
+        with patch("app.process.detect_pii", return_value=[]), \
+             patch(
+                 "app.process.ner_inference",
+                 return_value=[
+                     {"category": "Email", "text": "alice@example.com", "confidence": 0.91},
+                     {"category": "PhoneNumber", "text": "+1 555 012 3456", "confidence": 0.95},
+                 ],
+             ), \
+             patch("app.process.llm_verify_findings", return_value=[]):
+            result = scan_text(text, "file-1")
+
+        assert result.has_pii
+        assert result.category == "phone"
 
     def test_unsupported_file_type_raises(self, tmp_path):
         bad = tmp_path / "file.xyz"

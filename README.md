@@ -180,7 +180,7 @@ POST /workflows/drive/scan
 from app.process import run, RegexDetectorConfig
 
 results = run(["report.pdf", "employees.csv"])
-# Each result: ScanResult(file_path, findings=[{category, start, end, snippet}])
+# Each result: ScanResult(file_path, findings=[{category, start, end, snippet}], category=...)
 ```
 
 Disable specific detectors:

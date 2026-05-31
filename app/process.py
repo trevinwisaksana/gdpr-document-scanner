@@ -66,10 +66,22 @@ class ScanResult:
     file_path: str
     findings: list[dict]
     stage: str = "regex"
+    category: str | None = None
 
     @property
     def has_pii(self) -> bool:
         return len(self.findings) > 0
+
+
+def _primary_category(findings: list[dict]) -> str | None:
+    """Return the single best category for a file, preferring highest confidence."""
+    if not findings:
+        return None
+    best = max(
+        enumerate(findings),
+        key=lambda item: ((item[1].get("confidence") or 0), -item[0]),
+    )[1]
+    return best.get("category")
 
 
 # ── use-case ──────────────────────────────────────────────────────────────────
@@ -85,6 +97,7 @@ def scan_text(text: str, file_id: str, config: RegexDetectorConfig | None = None
     t0 = time.perf_counter()
     findings = detect_pii(text, config)
     timings["regex_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+    category = _primary_category(findings)
 
     if not findings:
         try:
@@ -109,6 +122,8 @@ def scan_text(text: str, file_id: str, config: RegexDetectorConfig | None = None
                     verified = []
 
                 findings = high_conf + verified
+
+            category = _primary_category(findings)
         except Exception:
             logger.warning("NER fallback failed", extra={"file": file_id})
 
@@ -117,6 +132,7 @@ def scan_text(text: str, file_id: str, config: RegexDetectorConfig | None = None
         findings = llm_detect_pii(text)
         timings["llm_detect_ms"] = round((time.perf_counter() - t0) * 1000, 1)
         stage = "llm_detect"
+        category = _primary_category(findings)
 
     timings["total_ms"] = round((time.perf_counter() - t_total) * 1000, 1)
 
@@ -126,7 +142,7 @@ def scan_text(text: str, file_id: str, config: RegexDetectorConfig | None = None
         " ".join(f"{k}={v}" for k, v in timings.items()),
     )
 
-    return ScanResult(file_path=file_id, findings=findings, stage=stage)
+    return ScanResult(file_path=file_id, findings=findings, stage=stage, category=category)
 
 
 def scan_document(file_path: str | Path, config: RegexDetectorConfig | None = None) -> ScanResult:

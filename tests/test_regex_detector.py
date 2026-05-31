@@ -34,6 +34,7 @@ def one(findings, category):
 def assert_finding_shape(f, text):
     assert "category" in f
     assert "snippet" in f
+    assert "pattern" in f
     assert "source" in f
     assert "confidence" not in f
     assert f["snippet"] in text or f["snippet"].strip() in text
@@ -66,6 +67,7 @@ class TestDetectPiiContract:
         text = "Email: alice@example.com"
         results = detect_pii(text)
         assert all(f.get("source") == "regex" for f in results)
+        assert all(isinstance(f.get("pattern"), str) and f["pattern"] for f in results)
 
     def test_snippet_text_always_alphanumeric(self):
         text = "Name: John Doe\nEmail: j@x.com\nPhone: 555-123-4567"
