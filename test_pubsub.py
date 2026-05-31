@@ -148,8 +148,16 @@ def stage_extraction(num_messages: int) -> None:
 
 def stage_scanner(num_messages: int) -> None:
     print("\n=== Stage 3: Scanner consumer ===")
+    import psycopg2
     from app.process import scan_text
     from google.cloud import pubsub_v1
+
+    database_url = os.environ.get("DATABASE_URL", "").strip()
+    db = psycopg2.connect(database_url) if database_url else None
+    if db:
+        print("  Connected to database")
+    else:
+        print("  WARNING: DATABASE_URL not set — skipping DB writes")
 
     subscriber = pubsub_v1.SubscriberClient()
 
@@ -163,6 +171,17 @@ def stage_scanner(num_messages: int) -> None:
             payload = json.loads(received.message.data.decode("utf-8"))
             try:
                 result = scan_text(payload["text"], payload["file_id"])
+                status_flag = "flagged" if result.has_pii else "not_flagged"
+
+                if db:
+                    with db.cursor() as cur:
+                        cur.execute(
+                            "UPDATE drive_files SET status_flag = %s, last_seen_at = NOW() WHERE file_id = %s",
+                            (status_flag, payload["file_id"]),
+                        )
+                    db.commit()
+                    print(f"  DB updated: {payload['name']} → status_flag={status_flag}")
+
                 ack_ids.append(received.ack_id)
                 print(f"  Scanned: {payload['name']} | has_pii={result.has_pii} | findings={len(result.findings)}")
                 for f in result.findings[:5]:
@@ -176,6 +195,9 @@ def stage_scanner(num_messages: int) -> None:
             subscriber.acknowledge(
                 request={"subscription": SCANNER_SUBSCRIPTION, "ack_ids": ack_ids}
             )
+
+    if db:
+        db.close()
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
