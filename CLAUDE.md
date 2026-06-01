@@ -9,10 +9,10 @@ Scan Google Drive files for GDPR personally identifiable information (PII). File
 ## Pipeline Architecture
 
 ```
-Lister cronjob → Postgres → Extractor consumer → Pub/Sub → Scanner consumer → Postgres
+Lister cronjob → Postgres + Pub/Sub → Extractor consumer → Pub/Sub → Scanner consumer → Postgres
 ```
 
-1. **Lister** (`jobs/listing.py`) — Cloud Run Job on a schedule. Uses the service account to list all files in Google Drive (`SOURCE_FOLDER_ID=root`). Upserts file metadata into the `drive_files` Postgres table.
+1. **Lister** (`jobs/listing.py`) — Cloud Run Job on a schedule. Uses the service account to list all files in Google Drive. Upserts file metadata into the `drive_files` Postgres table, then publishes unchecked files directly to the extractor Pub/Sub topic (`EXTRACTOR_PUBSUB_TOPIC`).
 
 2. **Extractor consumer** (`services/extraction_consumer.py`) — Long-lived Cloud Run Service. Pulls file metadata messages from Pub/Sub (`PUBSUB_SUBSCRIPTION`), downloads and extracts text via `app/gdrive_downloader.py` + `app/file_reader.py`, then publishes `{file_id, name, text}` to the scanner Pub/Sub topic (`SCANNER_PUBSUB_TOPIC`).
 
@@ -38,6 +38,7 @@ Runs in order, each stage is a fallback for the previous:
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path to service account JSON (`credentials.json`) |
 | `SOURCE_FOLDER_ID` | Google Drive folder ID to scan (`root` for all) |
 | `DATABASE_URL` | Postgres connection string |
+| `EXTRACTOR_PUBSUB_TOPIC` | Pub/Sub topic lister publishes unchecked files to |
 | `PUBSUB_SUBSCRIPTION` | Pub/Sub subscription for each consumer |
 | `SCANNER_PUBSUB_TOPIC` | Pub/Sub topic extractor publishes to |
 | `NER_SUBSCRIPTION_KEY` | Azure Language service key |

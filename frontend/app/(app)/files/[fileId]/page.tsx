@@ -14,7 +14,6 @@ import {
   X,
 } from "lucide-react";
 
-import { getFileById, getFlaggedFilesForUser } from "@/lib/data";
 import { useSession } from "@/lib/session";
 import { useDecisions } from "@/lib/decisions";
 import { useSettings } from "@/lib/settings-store";
@@ -22,6 +21,7 @@ import { categoryColor } from "@/lib/gdpr";
 import { cn, formatDate, humanBytes } from "@/lib/format";
 import { fallbackSummary, ollamaAvailable, streamSummary } from "@/lib/ollama";
 import type { Decision, ScannedFile } from "@/lib/types";
+import { fetchFlaggedFilesForUser, adaptApiFile } from "@/lib/api";
 
 import { Button, DecisionBadge, EmptyState, Spinner, useToast } from "@/components/ui";
 import { DataSourceBadge } from "@/components/PageHeader";
@@ -104,6 +104,15 @@ export default function FileViewerPage() {
   const { user: userSettings, admin } = useSettings();
   const { toast } = useToast();
 
+  const [liveFiles, setLiveFiles] = useState<ScannedFile[] | null>(null);
+
+  useEffect(() => {
+    if (!viewedUser) return;
+    fetchFlaggedFilesForUser(viewedUser.email)
+      .then((files) => setLiveFiles(files.map((f) => adaptApiFile(f, viewedUser.id))))
+      .catch(() => setLiveFiles([]));
+  }, [viewedUser]);
+
   // ── AI summary state ──────────────────────────────────────────────────────
   const [summary, setSummary] = useState("");
   const [summaryLoading, setSummaryLoading] = useState(false);
@@ -126,15 +135,12 @@ export default function FileViewerPage() {
   }, [fileId]);
 
   const userFiles = useMemo(
-    () => (viewedUser ? getFlaggedFilesForUser(viewedUser.id) : []),
-    [viewedUser]
+    () => liveFiles ?? [],
+    [liveFiles]
   );
 
-  const current = getFileById(fileId);
-  const ownsCurrent =
-    !!current &&
-    !!viewedUser &&
-    (current.ownerUserId === viewedUser.id || current.masterUserId === viewedUser.id);
+  const current = userFiles.find((f) => f.id === fileId) ?? null;
+  const ownsCurrent = !!current;
 
   // The review cycle: files still pending or with extended retention.
   const cycle = useMemo(
@@ -206,6 +212,14 @@ export default function FileViewerPage() {
     );
   }
 
+  if (liveFiles === null) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Spinner className="h-6 w-6 text-ink-faint" />
+      </div>
+    );
+  }
+
   if (!current || !ownsCurrent) {
     return (
       <div className="mx-auto max-w-xl animate-fadeIn">
@@ -224,7 +238,6 @@ export default function FileViewerPage() {
   }
 
   const currentDecision = decisionFor(current.id);
-  const findingIds = current.findings.map((f) => f.id);
   const visibleFindings = current.findings.filter(
     (f) => f.confidence >= admin.confidenceThreshold
   );
@@ -251,7 +264,7 @@ export default function FileViewerPage() {
   };
 
   const applyDecision = (decision: Exclude<Decision, "pending">) => {
-    setDecision(current.id, decision, findingIds);
+    setDecision(current.id, decision);
     const t = DECISION_TOAST[decision];
     toast(t.msg, t.tone);
 

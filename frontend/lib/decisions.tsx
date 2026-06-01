@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react";
-import { updateFindingStatus, type FindingAction } from "./api";
+import { updateFileStatus, type FindingAction } from "./api";
 import type { Decision } from "./types";
 import { usePersisted } from "./use-persisted";
 
@@ -20,7 +20,7 @@ export interface DecisionCounts {
 interface DecisionsContextValue {
   ready: boolean;
   decisionFor: (fileId: string) => Decision;
-  setDecision: (fileId: string, decision: Decision, findingIds?: string[]) => void;
+  setDecision: (fileId: string, decision: Decision) => void;
   bulkSet: (fileIds: string[], decision: Decision) => void;
   reset: () => void;
   /** Aggregate decision counts across a set of files. */
@@ -41,21 +41,18 @@ export function DecisionsProvider({ children }: { children: ReactNode }) {
   const decisionFor = useCallback((fileId: string): Decision => map[fileId] ?? "pending", [map]);
 
   const setDecision = useCallback(
-    (fileId: string, decision: Decision, findingIds?: string[]) => {
+    (fileId: string, decision: Decision) => {
       setMap((prev) => {
         const next = { ...prev };
         if (decision === "pending") delete next[fileId];
         else next[fileId] = decision;
         return next;
       });
-      // Best-effort sync to the backend (no-op until /findings endpoint is live).
       const action = DECISION_TO_ACTION[decision];
-      if (action && findingIds?.length) {
-        for (const id of findingIds) {
-          updateFindingStatus(id, action).catch(() => {
-            /* backend not live yet — decision is kept client-side */
-          });
-        }
+      if (action) {
+        updateFileStatus(fileId, action).catch(() => {
+          /* decision is kept client-side if the backend call fails */
+        });
       }
     },
     [setMap]

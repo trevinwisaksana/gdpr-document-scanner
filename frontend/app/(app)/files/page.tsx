@@ -1,13 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { CheckCircle2, Search, Trash2, ShieldCheck, Clock, RotateCcw, X } from "lucide-react";
 import { useSession } from "@/lib/session";
 import { useDecisions } from "@/lib/decisions";
 import { useSettings } from "@/lib/settings-store";
 import {
-  getFlaggedFilesForUser,
   sortByRisk,
   fileCategories,
   filePriority,
@@ -15,11 +14,13 @@ import {
 import { categoryColor, categoryLabel } from "@/lib/gdpr";
 import { cn, formatDate } from "@/lib/format";
 import type { ScannedFile } from "@/lib/types";
+import { fetchFlaggedFilesForUser, adaptApiFile } from "@/lib/api";
 import {
   Button,
   PriorityPill,
   DecisionBadge,
   EmptyState,
+  Spinner,
   useToast,
 } from "@/components/ui";
 import { PageHeader, DataSourceBadge } from "@/components/PageHeader";
@@ -47,11 +48,19 @@ export default function FilesPage() {
 
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [liveFiles, setLiveFiles] = useState<ScannedFile[] | null>(null);
 
-  // Base set of flagged files for this user (recomputed when the viewer switches).
+  useEffect(() => {
+    if (!viewedUser) return;
+    setLiveFiles(null);
+    fetchFlaggedFilesForUser(viewedUser.email)
+      .then((files) => setLiveFiles(files.map((f) => adaptApiFile(f, viewedUser.id))))
+      .catch(() => setLiveFiles([]));
+  }, [viewedUser]);
+
   const baseFiles = useMemo<ScannedFile[]>(
-    () => (viewedUser ? getFlaggedFilesForUser(viewedUser.id) : []),
-    [viewedUser]
+    () => liveFiles ?? [],
+    [liveFiles]
   );
 
   // Apply hide-low-risk → sort → name search.
@@ -70,6 +79,11 @@ export default function FilesPage() {
   }, [baseFiles, settings.hideLowRisk, settings.defaultSort, query]);
 
   if (!viewedUser) return null;
+  if (liveFiles === null) return (
+    <div className="flex h-64 items-center justify-center">
+      <Spinner className="h-6 w-6 text-ink-faint" />
+    </div>
+  );
 
   const fileIds = files.map((f) => f.id);
   const c = counts(fileIds);
@@ -266,20 +280,19 @@ export default function FilesPage() {
                         {categoryLabel(cat)}
                       </span>
                     ))}
-                    <span className="text-[0.7rem] text-ink-faint">
-                      · modified {formatDate(file.lastModified)}
-                    </span>
                   </div>
                 </div>
 
-                <div className="hidden flex-none text-right md:block">
-                  <span className="font-mono text-[0.8rem] font-semibold text-ink">
-                    {file.findings.length}
-                  </span>
-                  <span className="ml-1 text-[0.72rem] text-ink-faint">
-                    {file.findings.length === 1 ? "finding" : "findings"}
-                  </span>
-                </div>
+                {file.findings.length > 0 && (
+                  <div className="hidden flex-none text-right md:block">
+                    <span className="font-mono text-[0.8rem] font-semibold text-ink">
+                      {file.findings.length}
+                    </span>
+                    <span className="ml-1 text-[0.72rem] text-ink-faint">
+                      {file.findings.length === 1 ? "finding" : "findings"}
+                    </span>
+                  </div>
+                )}
 
                 <div className="flex-none">
                   <PriorityPill priority={pri} />

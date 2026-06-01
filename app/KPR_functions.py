@@ -127,6 +127,77 @@ def list_all_owners() -> list[str]:
         pool.putconn(conn)
 
 
+def owner_exists(owner: str) -> bool:
+    """Check whether any drive file is owned by this email."""
+    pool = _get_pool()
+    conn = pool.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM drive_files WHERE owner = %s LIMIT 1", (owner,))
+            result = cur.fetchone() is not None
+        conn.commit()
+        return result
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        pool.putconn(conn)
+
+
+def flagged_files_for_owner(owner: str) -> list[dict[str, Any]]:
+    """Return flagged drive_files rows for a given owner email."""
+    pool = _get_pool()
+    conn = pool.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT file_id, name, google_created_at, last_seen_at, pii_category
+                FROM drive_files
+                WHERE owner = %s AND status_flag = 'flagged'
+                ORDER BY last_seen_at DESC
+                """,
+                (owner,),
+            )
+            rows = cur.fetchall()
+        conn.commit()
+        return [
+            {
+                "file_id": row[0],
+                "name": row[1],
+                "google_created_at": row[2],
+                "last_seen_at": row[3],
+                "pii_category": row[4],
+            }
+            for row in rows
+        ]
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        pool.putconn(conn)
+
+
+def set_file_user_decision(file_id: str, decision: str) -> bool:
+    """Update user_action on a drive_files row with the user's decision. Returns True if a row was updated."""
+    pool = _get_pool()
+    conn = pool.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE drive_files SET user_action = %s WHERE file_id = %s",
+                (decision, file_id),
+            )
+            updated = cur.rowcount > 0
+        conn.commit()
+        return updated
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        pool.putconn(conn)
+
+
 def flagged_files_per_owner() -> list[dict[str, Any]]:
     """Return flagged-file counts grouped by owner."""
     pool = _get_pool()

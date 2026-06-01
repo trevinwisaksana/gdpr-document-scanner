@@ -15,7 +15,15 @@
 //   PATCH /findings/{id}/status      (finding decision)
 // updateFindingStatus() below is kept as a best-effort no-op-on-failure call.
 
-import type { Kpis, OwnerStat } from "./types";
+import type {
+  Detector,
+  Finding,
+  Kpis,
+  OwnerStat,
+  PiiCategory,
+  ScannedFile,
+  SourceType,
+} from "./types";
 
 // Default to the deployed backend so the admin dashboard is live out of the box.
 // Override with NEXT_PUBLIC_API_BASE_URL; set it to "" (or DEMO_MODE=true) to
@@ -154,15 +162,60 @@ export async function triggerDriveScan(): Promise<{
 
 export type FindingAction = "confirm_delete" | "keep" | "false_positive";
 
-/** Best-effort decision sync. Swallows failures (the store may be unavailable). */
-export async function updateFindingStatus(
-  findingId: string,
+/** Persist a file-level decision via PATCH /files/{file_id}/status. */
+export async function updateFileStatus(
+  fileId: string,
   action: FindingAction
 ): Promise<void> {
-  await req(`/findings/${encodeURIComponent(findingId)}/status`, {
+  await req(`/files/${encodeURIComponent(fileId)}/status`, {
     method: "PATCH",
     body: JSON.stringify({ action }),
   });
+}
+
+export interface ApiFlaggedFile {
+  id: string;
+  path: string;
+  source_type: string;
+  size_bytes: number;
+  last_modified: number;
+  last_scanned_at: number | null;
+  n_findings: number;
+  finding_categories: string[];
+}
+
+export async function fetchFlaggedFilesForUser(userId: string): Promise<ApiFlaggedFile[]> {
+  const data = await req<{ user_id: string; total: number; files: ApiFlaggedFile[] }>(
+    `/users/${encodeURIComponent(userId)}/files`
+  );
+  return data.files;
+}
+
+export function adaptApiFile(f: ApiFlaggedFile, userId: string): ScannedFile {
+  const name = f.path.split("/").pop() ?? f.path;
+  const findings: Finding[] = f.finding_categories.map((cat, i) => ({
+    id: `${f.id}__${i}`,
+    fileId: f.id,
+    category: cat as PiiCategory,
+    snippet: "",
+    confidence: 1,
+    detector: "regex" as Detector,
+    gdprArticles: [],
+  }));
+  return {
+    id: f.id,
+    name,
+    path: f.path,
+    sourceType: f.source_type as SourceType,
+    mimeType: "",
+    sizeBytes: f.size_bytes,
+    lastModified: f.last_modified,
+    lastScannedAt: f.last_scanned_at ?? 0,
+    ownerUserId: userId,
+    masterUserId: null,
+    text: "",
+    findings,
+  };
 }
 
 export { ApiError };

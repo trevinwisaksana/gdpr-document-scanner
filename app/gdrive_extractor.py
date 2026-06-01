@@ -87,6 +87,19 @@ class GDriveLister:
             logger.info("upserted %d files into drive_files", count)
 
             if publisher and topic:
+                with conn.cursor() as cur:
+                    file_ids = [file["file_id"] for file in batch]
+                    cur.execute(
+                        "SELECT file_id FROM drive_files "
+                        "WHERE file_id = ANY(%s) "
+                        "AND (status_flag IS NULL OR status_flag = 'not_checked')",
+                        (file_ids,),
+                    )
+                    unchecked = {row[0] for row in cur.fetchall()}
+
+                to_publish = [f for f in batch if f["file_id"] in unchecked]
+                logger.info("publishing %d unchecked files (skipping %d already processed)", len(to_publish), count - len(to_publish))
+
                 futures = [
                     publisher.publish(
                         topic,
@@ -96,7 +109,7 @@ class GDriveLister:
                             "mime_type": file["mime_type"],
                         }).encode(),
                     )
-                    for file in batch
+                    for file in to_publish
                 ]
                 for f in futures:
                     f.result()

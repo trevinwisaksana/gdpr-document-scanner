@@ -163,7 +163,7 @@ export default function AdminDashboardPage() {
         </div>
 
         <p className="mt-3 text-[0.76rem] text-ink-muted">
-          “Scan Google Drive” triggers the live Cloud Run pipeline — it lists every accessible Drive
+          "Scan Google Drive" triggers the live Cloud Run pipeline — it lists every accessible Drive
           file and queues it for extraction and PII scanning. Results land in the KPIs above (the
           scan runs in the background; refresh to pull the latest counts).
         </p>
