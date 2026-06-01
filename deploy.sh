@@ -28,9 +28,6 @@ docker push $REGISTRY/gdpr-extraction-consumer:latest
 docker build -f Dockerfile.scanner -t $REGISTRY/gdpr-scanner-consumer:latest .
 docker push $REGISTRY/gdpr-scanner-consumer:latest
 
-docker build -f Dockerfile.job -t $REGISTRY/gdpr-extraction-job:latest .
-docker push $REGISTRY/gdpr-extraction-job:latest
-
 docker build -f Dockerfile.listing -t $REGISTRY/gdpr-listing-job:latest .
 docker push $REGISTRY/gdpr-listing-job:latest
 
@@ -59,22 +56,13 @@ echo "=== Deploying Cloud Run jobs ==="
 gcloud run jobs create gdpr-listing-job \
   --image=$REGISTRY/gdpr-listing-job:latest \
   --region=$REGION --project=$PROJECT \
-  --service-account=$SA 2>/dev/null || \
+  --service-account=$SA \
+  --set-env-vars="DATABASE_URL=$DATABASE_URL,EXTRACTOR_PUBSUB_TOPIC=$EXTRACTION_TOPIC" 2>/dev/null || \
 gcloud run jobs update gdpr-listing-job \
   --image=$REGISTRY/gdpr-listing-job:latest \
   --region=$REGION --project=$PROJECT \
-  --service-account=$SA
-
-gcloud run jobs create gdpr-extraction-job \
-  --image=$REGISTRY/gdpr-extraction-job:latest \
-  --region=$REGION --project=$PROJECT \
   --service-account=$SA \
-  --set-env-vars="PUBSUB_TOPIC=$EXTRACTION_TOPIC" 2>/dev/null || \
-gcloud run jobs update gdpr-extraction-job \
-  --image=$REGISTRY/gdpr-extraction-job:latest \
-  --region=$REGION --project=$PROJECT \
-  --service-account=$SA \
-  --set-env-vars="PUBSUB_TOPIC=$EXTRACTION_TOPIC"
+  --set-env-vars="DATABASE_URL=$DATABASE_URL,EXTRACTOR_PUBSUB_TOPIC=$EXTRACTION_TOPIC"
 
 echo "=== Done ==="
 echo "Services:"
