@@ -5,48 +5,33 @@ Exposes workflow endpoints that trigger the Drive scanning pipeline.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-from contextlib import asynccontextmanager
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from google.cloud import pubsub_v1
 from pydantic import BaseModel, Field
 
 from app.gdrive_extractor import GDriveLister
 from app.KPR_functions import (
+    flagged_files_for_owner,
     flagged_files_per_owner,
     list_all_owners,
+    owner_exists,
     percentage_files_flagged,
+    set_file_user_decision,
     total_files_flagged,
     total_files_processed,
     total_files_registered,
 )
 from app.process import ScanResult, scan_text
 from detectors.regex import RegexDetectorConfig
-import scanner.store as store
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
-_publisher: pubsub_v1.PublisherClient | None = None
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global _publisher
-    _publisher = pubsub_v1.PublisherClient()
-    logger.info(json.dumps({"event": "api_startup", "service": "gdpr-document-scanner"}))
-    yield
-    if _publisher:
-        _publisher.close()
-    logger.info(json.dumps({"event": "api_shutdown", "service": "gdpr-document-scanner"}))
-
-
-app = FastAPI(title="GDPR Document Scanner", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="GDPR Document Scanner", version="1.0.0")
 
 allowed_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
 app.add_middleware(
@@ -154,6 +139,7 @@ def _to_response(result: ScanResult) -> ScanTextResponse:
 
 
 @app.get("/health")
+@app.get("/healthz")
 def health() -> dict[str, str]:
     return {"status": "ok"}
 
@@ -196,62 +182,55 @@ def kpi_flagged_files_per_owner() -> KPIFlaggedByOwnerResponse:
     )
 
 
+def _to_epoch(val: object) -> float:
+    """Convert a datetime object or ISO string to a Unix timestamp."""
+    if val is None:
+        return 0.0
+    if hasattr(val, "timestamp"):
+        return val.timestamp()
+    try:
+        from datetime import datetime, timezone
+        return datetime.fromisoformat(str(val).replace("Z", "+00:00")).timestamp()
+    except (ValueError, TypeError):
+        return 0.0
+
+
 @app.get("/users/{user_id}/files", response_model=FlaggedFilesResponse)
 def list_flagged_files(user_id: str) -> FlaggedFilesResponse:
-    """Return all flagged files (files with PII findings) that belong to the given user."""
-    store.init_db()
-    user = store.get_user(user_id)
-    if user is None:
+    """Return all flagged Drive files that belong to the given owner (email)."""
+    if not owner_exists(user_id):
         raise HTTPException(status_code=404, detail="user not found")
 
-    rows = store.flagged_files_for_user(user_id)
+    rows = flagged_files_for_owner(user_id)
     files = [
         FlaggedFile(
-            id=row["id"],
-            path=row["path"],
-            source_type=row["source_type"],
-            size_bytes=row["size_bytes"],
-            last_modified=row["last_modified"],
-            last_scanned_at=row["last_scanned_at"],
-            n_findings=row["n_findings"],
-            finding_categories=row["categories"].split(",") if row["categories"] else [],
+            id=row["file_id"],
+            path=row["name"],
+            source_type="gdrive",
+            size_bytes=0,
+            last_modified=_to_epoch(row["google_created_at"]),
+            last_scanned_at=_to_epoch(row["last_seen_at"]) or None,
+            n_findings=1,
+            finding_categories=[row["pii_category"]] if row["pii_category"] else [],
         )
         for row in rows
     ]
     return FlaggedFilesResponse(user_id=user_id, total=len(files), files=files)
 
 
-@app.patch("/findings/{finding_id}/status", response_model=FindingActionResponse)
-def update_finding_status(finding_id: str, payload: FindingActionRequest) -> FindingActionResponse:
-    store.init_db()
+@app.patch("/files/{file_id}/status", response_model=FindingActionResponse)
+def update_file_status(file_id: str, payload: FindingActionRequest) -> FindingActionResponse:
     status = _ACTION_TO_STATUS[payload.action]
-    updated = store.set_finding_status(finding_id, status)
+    updated = set_file_user_decision(file_id, status)
     if not updated:
-        raise HTTPException(status_code=404, detail="finding not found")
-    return FindingActionResponse(finding_id=finding_id, status=status)
+        raise HTTPException(status_code=404, detail="file not found")
+    return FindingActionResponse(finding_id=file_id, status=status)
 
 
 @app.post("/workflows/drive/scan", response_model=DriveWorkflowResponse)
 def trigger_drive_scan() -> DriveWorkflowResponse:
-    """List all accessible Drive files and enqueue each for extraction and PII scanning."""
-    topic = os.environ.get("PUBSUB_TOPIC")
-    if not topic:
-        raise HTTPException(status_code=500, detail="PUBSUB_TOPIC not configured")
-    if _publisher is None:
-        raise HTTPException(status_code=503, detail="publisher not ready")
-
+    """List all accessible Drive files and upsert them into Postgres."""
     lister = GDriveLister()
-    queued = 0
-    failed = 0
-
-    for file in lister.list_files():
-        try:
-            _publisher.publish(topic, json.dumps(file).encode()).result()
-            queued += 1
-            logger.info("queued file_id=%s name=%r", file["file_id"], file["name"])
-        except Exception as exc:
-            logger.error("publish failed file_id=%s error=%s", file["file_id"], exc)
-            failed += 1
-
-    logger.info("scan trigger complete queued=%d failed=%d", queued, failed)
-    return DriveWorkflowResponse(files_queued=queued, failed=failed, status="ok")
+    count = lister.run()
+    logger.info("drive scan complete files=%d", count)
+    return DriveWorkflowResponse(files_queued=count, failed=0, status="ok")
