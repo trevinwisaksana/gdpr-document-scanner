@@ -21,6 +21,9 @@ from app.KPR_functions import (
     flagged_files_per_owner,
     list_all_owners,
     percentage_files_flagged,
+    percentage_files_flagged_over_time,
+    total_files_flagged_over_time,
+    total_files_over_time,
     total_files_flagged,
     total_files_processed,
     total_files_registered,
@@ -123,6 +126,33 @@ class KPIFlaggedByOwnerResponse(BaseModel):
     items: list[KPIFlaggedByOwnerItem]
 
 
+class KPITrendRegisteredItem(BaseModel):
+    captured_at: Any
+    total_files_registered: int
+
+
+class KPITrendRegisteredResponse(BaseModel):
+    items: list[KPITrendRegisteredItem]
+
+
+class KPITrendFlaggedItem(BaseModel):
+    captured_at: Any
+    total_files_flagged: int
+
+
+class KPITrendFlaggedResponse(BaseModel):
+    items: list[KPITrendFlaggedItem]
+
+
+class KPITrendPercentageItem(BaseModel):
+    captured_at: Any
+    percentage_files_flagged: float
+
+
+class KPITrendPercentageResponse(BaseModel):
+    items: list[KPITrendPercentageItem]
+
+
 class FindingActionRequest(BaseModel):
     action: Literal["confirm_delete", "keep", "false_positive"]
 
@@ -193,6 +223,30 @@ def kpi_owners() -> KPIOwnersResponse:
 def kpi_flagged_files_per_owner() -> KPIFlaggedByOwnerResponse:
     return KPIFlaggedByOwnerResponse(
         items=[KPIFlaggedByOwnerItem(**row) for row in flagged_files_per_owner()]
+    )
+
+
+@app.get("/kpis/total-files-registered-over-time", response_model=KPITrendRegisteredResponse)
+def kpi_total_files_registered_over_time() -> KPITrendRegisteredResponse:
+    return KPITrendRegisteredResponse(
+        items=[KPITrendRegisteredItem(**row) for row in total_files_over_time()]
+    )
+
+
+@app.get("/kpis/total-files-flagged-over-time", response_model=KPITrendFlaggedResponse)
+def kpi_total_files_flagged_over_time() -> KPITrendFlaggedResponse:
+    return KPITrendFlaggedResponse(
+        items=[KPITrendFlaggedItem(**row) for row in total_files_flagged_over_time()]
+    )
+
+
+@app.get("/kpis/percentage-files-flagged-over-time", response_model=KPITrendPercentageResponse)
+def kpi_percentage_files_flagged_over_time() -> KPITrendPercentageResponse:
+    return KPITrendPercentageResponse(
+        items=[
+            KPITrendPercentageItem(**row)
+            for row in percentage_files_flagged_over_time()
+        ]
     )
 
 

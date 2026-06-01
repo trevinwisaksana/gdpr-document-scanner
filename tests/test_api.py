@@ -202,6 +202,63 @@ def test_kpi_flagged_files_per_owner_endpoint():
     }
 
 
+def test_kpi_total_files_registered_over_time_endpoint():
+    with patch(
+        "app.main.total_files_over_time",
+        return_value=[
+            {"captured_at": "2026-01-01T10:00:00Z", "total_files_registered": 12},
+            {"captured_at": "2026-01-02T10:00:00Z", "total_files_registered": 18},
+        ],
+    ):
+        response = client.get("/kpis/total-files-registered-over-time")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": [
+            {"captured_at": "2026-01-01T10:00:00Z", "total_files_registered": 12},
+            {"captured_at": "2026-01-02T10:00:00Z", "total_files_registered": 18},
+        ]
+    }
+
+
+def test_kpi_total_files_flagged_over_time_endpoint():
+    with patch(
+        "app.main.total_files_flagged_over_time",
+        return_value=[
+            {"captured_at": "2026-01-01T10:00:00Z", "total_files_flagged": 4},
+            {"captured_at": "2026-01-02T10:00:00Z", "total_files_flagged": 7},
+        ],
+    ):
+        response = client.get("/kpis/total-files-flagged-over-time")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": [
+            {"captured_at": "2026-01-01T10:00:00Z", "total_files_flagged": 4},
+            {"captured_at": "2026-01-02T10:00:00Z", "total_files_flagged": 7},
+        ]
+    }
+
+
+def test_kpi_percentage_files_flagged_over_time_endpoint():
+    with patch(
+        "app.main.percentage_files_flagged_over_time",
+        return_value=[
+            {"captured_at": "2026-01-01T10:00:00Z", "percentage_files_flagged": 12.5},
+            {"captured_at": "2026-01-02T10:00:00Z", "percentage_files_flagged": 18.75},
+        ],
+    ):
+        response = client.get("/kpis/percentage-files-flagged-over-time")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": [
+            {"captured_at": "2026-01-01T10:00:00Z", "percentage_files_flagged": 12.5},
+            {"captured_at": "2026-01-02T10:00:00Z", "percentage_files_flagged": 18.75},
+        ]
+    }
+
+
 def test_drive_workflow_endpoint_queues_files_to_pubsub():
     files = [
         {"file_id": "f-1", "name": "alpha.pdf"},
