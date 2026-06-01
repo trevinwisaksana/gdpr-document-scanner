@@ -22,7 +22,7 @@ import {
   EmptyState,
   useToast,
 } from "@/components/ui";
-import { PageHeader, EngineTag } from "@/components/PageHeader";
+import { PageHeader, DataSourceBadge } from "@/components/PageHeader";
 import {
   FileTypeIcon,
   SourceBadge,
@@ -114,7 +114,7 @@ export default function FilesPage() {
       <PageHeader
         title="My files"
         subtitle="These files were automatically flagged for personal data across your connected sources. Nothing is deleted until you decide — review each item and choose what happens to it."
-        right={<EngineTag label="regex + NER + LLM" />}
+        right={<DataSourceBadge status="demo" />}
       />
 
       {/* Summary strip */}

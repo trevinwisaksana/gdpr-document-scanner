@@ -72,6 +72,13 @@ export function pct(value: number, total: number): number {
   return total > 0 ? (value / total) * 100 : 0;
 }
 
+/** Thousands-grouped integer, e.g. 2613 → "2,613". Deterministic (no locale). */
+export function formatInt(n: number): string {
+  return Math.round(n)
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
 export function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }

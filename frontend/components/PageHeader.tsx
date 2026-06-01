@@ -1,5 +1,24 @@
 import type { ReactNode } from "react";
 
+/** Pill that tells the user whether a screen is showing live or demo data. */
+export function DataSourceBadge({ status }: { status: "live" | "demo" | "loading" }) {
+  const map = {
+    live: { label: "Live backend", color: "#16a34a", glow: "#f0fdf4" },
+    demo: { label: "Demo data", color: "#d97706", glow: "#fffbeb" },
+    loading: { label: "Connecting…", color: "#7e92a8", glow: "#eef2f7" },
+  } as const;
+  const m = map[status];
+  return (
+    <span className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-line bg-surface px-2.5 py-1.5 font-mono text-[0.68rem] text-ink-muted">
+      <span
+        className="inline-block h-1.5 w-1.5 flex-none rounded-full"
+        style={{ background: m.color, boxShadow: `0 0 0 3px ${m.glow}` }}
+      />
+      {m.label}
+    </span>
+  );
+}
+
 export function EngineTag({ label, ok = true }: { label: string; ok?: boolean }) {
   return (
     <span className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-line bg-surface px-2.5 py-1.5 font-mono text-[0.68rem] text-ink-muted">

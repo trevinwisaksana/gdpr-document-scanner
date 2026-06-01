@@ -1,246 +1,140 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
+import Link from "next/link";
 import {
   Cloud,
-  Play,
-  FastForward,
-  RotateCcw,
-  Layers,
+  RefreshCw,
   Database,
   FileSearch,
+  Users as UsersIcon,
+  ScanText,
+  ArrowRight,
+  Flag,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
-import { PageHeader, EngineTag } from "@/components/PageHeader";
+import { PageHeader, DataSourceBadge } from "@/components/PageHeader";
 import { KpiCard } from "@/components/KpiCard";
-import { DonutChart, HBarList, ProgressBar, type Slice, type HBar } from "@/components/charts";
+import { DonutChart, HBarList, type Slice, type HBar } from "@/components/charts";
 import { Button, Spinner, useToast } from "@/components/ui";
-import {
-  computeKpis,
-  latestScanRun,
-  getFlaggedFiles,
-  getAllFiles,
-  isFlagged,
-  sourceBreakdown,
-  categoryBreakdown,
-} from "@/lib/data";
-import { useDecisions } from "@/lib/decisions";
-import { triggerDriveScan, API_BASE } from "@/lib/api";
-import { humanBytes, formatDate, SOURCE_LABEL } from "@/lib/format";
-import { categoryLabel, PRIORITY_COLOR } from "@/lib/gdpr";
-import type { ScannedFile, Decision } from "@/lib/types";
-
-type ScanType = "full" | "delta";
-
-interface SimState {
-  running: boolean;
-  type: ScanType | null;
-  total: number;
-  done: number;
-  currentFile: string | null;
-}
-
-const IDLE: SimState = { running: false, type: null, total: 0, done: 0, currentFile: null };
+import { useAdminData } from "@/lib/live";
+import { triggerDriveScan } from "@/lib/api";
+import { formatInt, formatDateTime, pct } from "@/lib/format";
 
 export default function AdminDashboardPage() {
   const { toast } = useToast();
-  const { counts, decisionFor, reset } = useDecisions();
+  const { data, status, error, refresh, refreshing, updatedAt } = useAdminData();
+  const { kpis, owners, flaggedPerOwner } = data;
 
-  const kpis = computeKpis();
-  const latest = latestScanRun();
-  const flagged = getFlaggedFiles();
-  const c = counts(flagged.map((f) => f.id));
-  const sources = sourceBreakdown();
-  const cats = categoryBreakdown();
-
-  // ── Live Cloud Run scan ───────────────────────────────────────────────────
+  // ── Live Cloud Run Drive scan ──────────────────────────────────────────────
   const [driveBusy, setDriveBusy] = useState(false);
   const handleDriveScan = useCallback(async () => {
     setDriveBusy(true);
     try {
       const res = await triggerDriveScan();
       const queued = res.files_queued;
-      const status = res.status ?? "queued";
+      const statusText = res.status ?? "queued";
       toast(
         typeof queued === "number"
-          ? `Drive scan ${status} — ${queued} file${queued === 1 ? "" : "s"} queued`
-          : `Drive scan ${status}`,
+          ? `Drive scan ${statusText} — ${formatInt(queued)} file${queued === 1 ? "" : "s"} queued`
+          : `Drive scan ${statusText}`,
         "success"
       );
     } catch {
-      toast("Could not reach the Cloud Run endpoint", "danger");
+      toast("Could not reach the Cloud Run scan endpoint", "danger");
     } finally {
       setDriveBusy(false);
     }
   }, [toast]);
 
-  // ── Simulated local scan with live progress ──────────────────────────────
-  const [sim, setSim] = useState<SimState>(IDLE);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearTimer = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => () => clearTimer(), [clearTimer]);
-
-  const startSim = useCallback(
-    (type: ScanType) => {
-      clearTimer();
-      const all = getAllFiles();
-      const queue: ScannedFile[] =
-        type === "delta" ? all.filter((f) => f.lastModified > latest.startedAt) : all;
-
-      if (queue.length === 0) {
-        toast("Delta scan — no files changed since the last scan", "info");
-        return;
-      }
-
-      const total = queue.length;
-      setSim({ running: true, type, total, done: 0, currentFile: queue[0].name });
-
-      let i = 0;
-      const step = () => {
-        const file = queue[i];
-        setSim({
-          running: true,
-          type,
-          total,
-          done: i + 1,
-          currentFile: file.name,
-        });
-        i += 1;
-        if (i < total) {
-          const delay = 90 + Math.floor(Math.random() * 30); // 90–120ms
-          timerRef.current = setTimeout(step, delay);
-        } else {
-          timerRef.current = null;
-          const flaggedCount = queue.filter(isFlagged).length;
-          setSim(IDLE);
-          toast(
-            `${type === "delta" ? "Delta" : "Full"} scan complete — ${total} file${
-              total === 1 ? "" : "s"
-            }, ${flaggedCount} flagged`,
-            "success"
-          );
-        }
-      };
-      timerRef.current = setTimeout(step, 110);
-    },
-    [clearTimer, latest.startedAt, toast]
-  );
-
-  const handleReset = useCallback(() => {
-    reset();
-    toast("All review decisions reset to pending", "info");
-  }, [reset, toast]);
-
-  // ── Donut: most-recent-scan outcome split with volume ─────────────────────
-  const all = getAllFiles();
-  const notFlaggedFiles = all.filter((f) => !isFlagged(f));
-  const flaggedByDecision: Record<Exclude<Decision, "pending"> | "pending", ScannedFile[]> = {
-    pending: [],
-    deleted: [],
-    cancelled: [],
-    extended: [],
-  };
-  for (const f of flagged) {
-    flaggedByDecision[decisionFor(f.id)].push(f);
-  }
-  const volume = (files: ScannedFile[]) =>
-    humanBytes(files.reduce((a, f) => a + f.sizeBytes, 0));
-
+  // ── Outcome split (registered → processed → flagged) ───────────────────────
+  const unprocessed = Math.max(0, kpis.filesRegistered - kpis.filesProcessed);
   const outcomeSlices: Slice[] = [
-    {
-      name: "Pending review",
-      value: c.pending,
-      color: "#d97706",
-      detail: volume(flaggedByDecision.pending),
-    },
-    {
-      name: "Marked for deletion",
-      value: c.deleted,
-      color: "#dc2626",
-      detail: volume(flaggedByDecision.deleted),
-    },
-    {
-      name: "Cancelled (false positive)",
-      value: c.cancelled,
-      color: "#16a34a",
-      detail: volume(flaggedByDecision.cancelled),
-    },
-    {
-      name: "Retention extended",
-      value: c.extended,
-      color: "#2b7be9",
-      detail: volume(flaggedByDecision.extended),
-    },
-    {
-      name: "Not flagged",
-      value: notFlaggedFiles.length,
-      color: "#cbd5e1",
-      detail: volume(notFlaggedFiles),
-    },
+    { name: "Flagged (contains PII)", value: kpis.filesFlagged, color: "#dc2626" },
+    { name: "Not flagged", value: kpis.filesNotFlagged, color: "#16a34a" },
   ];
+  if (unprocessed > 0) {
+    outcomeSlices.push({ name: "Not yet processed", value: unprocessed, color: "#cbd5e1" });
+  }
 
-  // ── Bars ──────────────────────────────────────────────────────────────────
-  const catRows: HBar[] = cats.map((cat) => ({
-    label: categoryLabel(cat.category),
-    value: cat.n,
-    color: PRIORITY_COLOR[cat.priority],
+  // ── Flagged files per owner ─────────────────────────────────────────────────
+  const ownerRows: HBar[] = flaggedPerOwner.map((o) => ({
+    label: o.owner,
+    value: o.flaggedFiles,
+    color: "#d97706",
   }));
 
-  const sourceRows: HBar[] = sources.map((s) => ({
-    label: SOURCE_LABEL[s.sourceType] ?? s.sourceType,
-    value: s.nFindings,
-    color: "#0891b2",
-    sub: `${s.nFiles} file${s.nFiles === 1 ? "" : "s"} · ${humanBytes(s.bytes)}`,
-  }));
-
-  const simPct = sim.total > 0 ? (sim.done / sim.total) * 100 : 0;
-  const remaining = Math.max(0, sim.total - sim.done);
+  const processedPct = pct(kpis.filesProcessed, kpis.filesRegistered);
 
   return (
     <div className="animate-fadeIn">
       <PageHeader
         title="Dashboard"
-        subtitle="Personal-data exposure across all connected sources."
+        subtitle="Personal-data exposure across Google Drive, straight from the live scanning pipeline."
         right={
           <div className="flex items-center gap-2">
-            <EngineTag label={API_BASE ? "backend: live" : "engine: demo"} ok={Boolean(API_BASE)} />
-            <span className="hidden whitespace-nowrap font-mono text-[0.68rem] text-ink-faint sm:inline">
-              Last scan {formatDate(latest.finishedAt)}
-            </span>
+            <DataSourceBadge status={status === "loading" ? "loading" : status} />
+            {updatedAt != null && (
+              <span className="hidden whitespace-nowrap font-mono text-[0.68rem] text-ink-faint sm:inline">
+                as of {formatDateTime(updatedAt)}
+              </span>
+            )}
           </div>
         }
       />
 
+      {status === "demo" && error && (
+        <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-flag-line bg-flag-soft px-4 py-3 text-[0.82rem] text-flag-text">
+          <AlertCircle className="mt-0.5 h-4 w-4 flex-none" />
+          <span>
+            Showing demo data — the backend could not be reached ({error}). Numbers below are from
+            the bundled sample dataset.
+          </span>
+        </div>
+      )}
+
       {/* ── KPI grid ─────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
         <KpiCard
-          num={kpis.filesProcessed}
-          label="Files scanned"
+          num={formatInt(kpis.filesRegistered)}
+          label="Files registered"
           variant="accent"
-          meta={`across ${sources.length} source${sources.length === 1 ? "" : "s"}`}
+          mono
+          meta={`across ${owners.length} owner${owners.length === 1 ? "" : "s"}`}
+          icon={<Database className="h-4 w-4" />}
+        />
+        <KpiCard
+          num={formatInt(kpis.filesProcessed)}
+          label="Files processed"
+          variant="default"
+          mono
+          meta={`${processedPct.toFixed(0)}% of registered`}
           icon={<FileSearch className="h-4 w-4" />}
         />
         <KpiCard
-          num={kpis.filesFlagged}
+          num={formatInt(kpis.filesFlagged)}
           label="Files flagged"
           variant="flag"
-          meta={`${kpis.percentFlagged.toFixed(1)}% of scanned`}
+          mono
+          meta={`${kpis.percentFlagged.toFixed(1)}% of processed`}
+          icon={<Flag className="h-4 w-4" />}
         />
-        <KpiCard num={kpis.totalFindings} label="Total findings" variant="flag" />
         <KpiCard
-          num={humanBytes(kpis.bytesScanned)}
-          label="Volume scanned"
+          num={formatInt(kpis.filesNotFlagged)}
+          label="Not flagged"
+          variant="ok"
+          mono
+          icon={<CheckCircle2 className="h-4 w-4" />}
+        />
+        <KpiCard
+          num={formatInt(owners.length)}
+          label="Data owners"
           variant="default"
           mono
-          icon={<Database className="h-4 w-4" />}
+          meta={`${flaggedPerOwner.length} with flagged data`}
+          icon={<UsersIcon className="h-4 w-4" />}
         />
-        <KpiCard num={`${latest.durationSec}s`} label="Last scan" variant="default" meta={latest.type} />
       </div>
 
       {/* ── Scan control ─────────────────────────────────────────────────── */}
@@ -253,82 +147,52 @@ export default function AdminDashboardPage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Button variant="primary" onClick={handleDriveScan} disabled={driveBusy || sim.running}>
+          <Button variant="primary" onClick={handleDriveScan} disabled={driveBusy}>
             {driveBusy ? <Spinner /> : <Cloud className="h-4 w-4" />}
             Scan Google Drive
           </Button>
-          <Button variant="default" onClick={() => startSim("full")} disabled={sim.running || driveBusy}>
-            <Play className="h-4 w-4" />
-            Full scan
+          <Button variant="default" onClick={refresh} disabled={refreshing}>
+            {refreshing ? <Spinner /> : <RefreshCw className="h-4 w-4" />}
+            Refresh KPIs
           </Button>
-          <Button variant="default" onClick={() => startSim("delta")} disabled={sim.running || driveBusy}>
-            <FastForward className="h-4 w-4" />
-            Delta scan
-          </Button>
-          <Button variant="ghost" onClick={handleReset} disabled={sim.running}>
-            <RotateCcw className="h-4 w-4" />
-            Reset decisions
-          </Button>
+          <Link href="/admin/scan" className="btn">
+            <ScanText className="h-4 w-4" />
+            Live PII scan
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
         </div>
 
         <p className="mt-3 text-[0.76rem] text-ink-muted">
-          Google Drive scan triggers the live Cloud Run pipeline; Full/Delta are simulated on the
-          demo dataset.
+          “Scan Google Drive” triggers the live Cloud Run pipeline — it lists every accessible Drive
+          file and queues it for extraction and PII scanning. Results land in the KPIs above (the
+          scan runs in the background; refresh to pull the latest counts).
         </p>
-
-        {/* ── Live scan progress ─────────────────────────────────────────── */}
-        {sim.running && (
-          <div className="mt-5 animate-fadeIn rounded-xl border border-line-soft bg-surface-alt p-4">
-            <div className="scan-beam-wrap mb-3">
-              <div className="scan-beam" />
-            </div>
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <span className="flex items-center gap-2 text-[0.82rem] font-medium text-ink">
-                <Spinner className="text-accent-strong" />
-                Running {sim.type === "delta" ? "delta" : "full"} scan
-              </span>
-              <span className="font-mono text-[0.74rem] font-semibold text-accent-strong">
-                {Math.round(simPct)}%
-              </span>
-            </div>
-            <ProgressBar value={simPct} />
-            <div className="mt-2 truncate font-mono text-[0.72rem] text-ink-faint">
-              scanning {sim.currentFile} · {sim.done} / {sim.total} ({Math.round(simPct)}% complete,{" "}
-              {remaining} remaining)
-            </div>
-          </div>
-        )}
       </div>
 
       {/* ── Charts row ───────────────────────────────────────────────────── */}
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="card card-pad">
-          <div className="section-label">Most recent scan — file outcomes</div>
-          <h2 className="mb-4 mt-1 text-[1.05rem] font-semibold text-ink">Outcome split</h2>
-          <DonutChart
-            data={outcomeSlices}
-            total={kpis.filesProcessed}
-            centerLabel="files"
-          />
+          <div className="section-label">Scan outcome</div>
+          <h2 className="mb-4 mt-1 text-[1.05rem] font-semibold text-ink">File exposure split</h2>
+          <DonutChart data={outcomeSlices} total={kpis.filesRegistered} centerLabel="files" />
         </div>
 
         <div className="card card-pad">
-          <div className="section-label">Findings by PII type</div>
+          <div className="section-label">By data owner</div>
           <h2 className="mb-4 mt-1 text-[1.05rem] font-semibold text-ink">
             <span className="inline-flex items-center gap-2">
-              <Layers className="h-4 w-4 text-ink-faint" />
-              Categories detected
+              <UsersIcon className="h-4 w-4 text-ink-faint" />
+              Flagged files per owner
             </span>
           </h2>
-          <HBarList rows={catRows} />
+          {ownerRows.length > 0 ? (
+            <HBarList rows={ownerRows} />
+          ) : (
+            <p className="py-6 text-center text-[0.84rem] text-ink-muted">
+              No flagged files attributed to an owner yet.
+            </p>
+          )}
         </div>
-      </div>
-
-      {/* ── By source ────────────────────────────────────────────────────── */}
-      <div className="card card-pad mt-4">
-        <div className="section-label">By source</div>
-        <h2 className="mb-4 mt-1 text-[1.05rem] font-semibold text-ink">Findings per connected source</h2>
-        <HBarList rows={sourceRows} />
       </div>
     </div>
   );

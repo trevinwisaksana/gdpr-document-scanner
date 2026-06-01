@@ -8,6 +8,7 @@ import {
   History,
   LayoutDashboard,
   LogOut,
+  ScanText,
   Settings,
   ShieldCheck,
   Users,
@@ -31,8 +32,9 @@ const EMPLOYEE_NAV: NavItem[] = [
 
 const ADMIN_NAV: NavItem[] = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/admin/scan", label: "Live PII scan", icon: ScanText },
+  { href: "/admin/users", label: "Data owners", icon: Users },
   { href: "/admin/history", label: "Scan history", icon: History },
-  { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ];
 

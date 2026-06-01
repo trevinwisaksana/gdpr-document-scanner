@@ -47,12 +47,26 @@ All env vars are optional. Without them, the app runs entirely on demo data.
 | `NEXT_PUBLIC_OLLAMA_URL` | `http://localhost:11434` | Local Ollama endpoint for the "explain why flagged" summary (called from the browser). |
 | `NEXT_PUBLIC_OLLAMA_MODEL` | `llama3.2` | Default Ollama model. Overridable per-user in Settings. |
 
-### Backend reality check
+### Backend reality check (verified against the live deployment)
 
-As of this build, the deployed Cloud Run image only exposes `GET /healthz` and `POST /workflows/drive/scan`. The KPI / user-files / findings / scan-text routes exist in the backend source (`app/main.py`) but **aren't deployed yet**. The frontend is built so that:
+The deployed Cloud Run image at `dashboard-http-…run.app` matches `app/main.py`. What's actually usable:
 
-- The **"Scan Google Drive"** admin button calls the real, live `POST /workflows/drive/scan` (CORS is open).
-- Everything else (KPIs, flagged files, findings, history) renders from the bundled demo dataset and **auto-upgrades to live data** the moment those endpoints deploy (`lib/api.ts` is already wired to the intended contract).
+| Surface | Endpoint(s) | Status |
+|---------|-------------|--------|
+| Aggregate KPIs | `/kpis/total-files-registered \| -flagged \| -processed`, `/kpis/percentage-files-flagged` | ✅ live (Postgres `drive_files`) |
+| Data owners | `/kpis/owners`, `/kpis/flagged-files-per-owner` | ✅ live |
+| Live PII scan | `POST /scan/text` | ✅ live (regex → NER → LLM) |
+| Trigger Drive scan | `POST /workflows/drive/scan` | ✅ live |
+| Health | `GET /health` | ✅ live (note: **not** `/healthz`) |
+| Per-user flagged files | `GET /users/{id}/files` | ⚠️ 500 — SQLite store not provisioned on Cloud Run |
+| Finding decision | `PATCH /findings/{id}/status` | ⚠️ same SQLite store |
+
+So the app is wired **hybrid**:
+
+- **Admin / DPO surface is live** — the dashboard (`/admin`), data-owners table (`/admin/users`), and the live PII scanner (`/admin/scan`) read real data from the endpoints above, and the **"Scan Google Drive"** button triggers the real pipeline. If the backend is unreachable, these screens fall back to the bundled demo dataset and say so via a "Demo data" badge.
+- **The employee workspace is a badged demo** — per-file findings, snippets, file text, decisions, and review stats have no live backing (`/users` + `/findings` 500, and there's no per-finding endpoint), so those screens run on the bundled dataset and are clearly marked "Demo data".
+
+Configure the backend URL with `NEXT_PUBLIC_API_BASE_URL` (it defaults to the known deployment). Set `NEXT_PUBLIC_DEMO_MODE=true` to force demo data everywhere.
 
 ### Local AI summaries (Ollama)
 
@@ -93,11 +107,12 @@ frontend/
 - Personal stats: assigned / pending / deleted / cancelled / extended.
 - Working settings: density, snippet visibility, default sort, hide low-risk, Ollama model, notifications.
 
-**Admin**
-- Dashboard: KPIs, **live scan progress bar**, and an outcome donut (flagged / not-flagged / pending / cancelled / extended) with both percentage and data volume.
-- Scan history: per-run snapshots with a trend chart.
-- Users: per-user review progress, with a scan-snapshot selector.
-- Settings: source connectors, retention period, delta-scan frequency (daily / weekly / monthly / custom), and detection tuning.
+**Admin (live)**
+- Dashboard: **real KPIs** (files registered / processed / flagged / % flagged / data owners), an outcome donut (flagged vs not-flagged vs unprocessed), a flagged-files-per-owner chart, the live **Scan Google Drive** trigger, and a **Refresh KPIs** button — all from the deployed backend.
+- **Live PII scan**: paste text → real `regex → NER → LLM` findings from `POST /scan/text`, with per-detector toggles.
+- Data owners: flagged-file exposure grouped by Drive owner (live `/kpis/*`).
+- Scan history: per-run snapshots with a trend chart (**demo** — no live endpoint).
+- Settings: source connectors, retention period, delta-scan frequency, and detection tuning (local prefs).
 
 ### State & persistence
 

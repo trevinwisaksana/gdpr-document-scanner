@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Clock3, FileSearch, Flag, ScrollText } from "lucide-react";
-import { PageHeader } from "@/components/PageHeader";
+import { PageHeader, DataSourceBadge } from "@/components/PageHeader";
 import { TrendChart } from "@/components/charts";
 import { Badge, Segmented } from "@/components/ui";
 import { getScanRuns } from "@/lib/data";
@@ -92,7 +92,16 @@ export default function AdminHistoryPage() {
       <PageHeader
         title="Scan history"
         subtitle="Point-in-time snapshots captured at the start of each scan run."
+        right={<DataSourceBadge status="demo" />}
       />
+
+      <div className="mb-6 flex items-start gap-2.5 rounded-xl border border-line bg-surface-alt px-4 py-3 text-[0.82rem] text-ink-muted">
+        <ScrollText className="mt-0.5 h-4 w-4 flex-none text-ink-faint" />
+        <span>
+          The deployed backend doesn’t expose a scan-history endpoint, so this timeline runs on the
+          bundled demo dataset. Live run-by-run snapshots would appear here once the API serves them.
+        </span>
+      </div>
 
       {/* ── Trend ─────────────────────────────────────────────────────── */}
       <section className="card card-pad mb-6">

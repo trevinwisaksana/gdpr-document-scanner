@@ -24,6 +24,7 @@ import { fallbackSummary, ollamaAvailable, streamSummary } from "@/lib/ollama";
 import type { Decision, ScannedFile } from "@/lib/types";
 
 import { Button, DecisionBadge, EmptyState, Spinner, useToast } from "@/components/ui";
+import { DataSourceBadge } from "@/components/PageHeader";
 import { FindingCard } from "@/components/FindingCard";
 import { DecisionDot, FileTypeIcon, RetentionBadge, SourceBadge } from "@/components/file-bits";
 
@@ -309,6 +310,7 @@ export default function FileViewerPage() {
             </span>
           )}
           {currentDecision !== "pending" && <DecisionBadge decision={currentDecision} />}
+          <DataSourceBadge status="demo" />
         </div>
       </div>
 

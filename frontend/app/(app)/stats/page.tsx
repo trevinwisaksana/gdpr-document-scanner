@@ -7,7 +7,7 @@ import { useDecisions } from "@/lib/decisions";
 import { getFlaggedFilesForUser, categoryBreakdown } from "@/lib/data";
 import { isPastRetention, pct, cn } from "@/lib/format";
 import { categoryLabel, PRIORITY_COLOR } from "@/lib/gdpr";
-import { PageHeader } from "@/components/PageHeader";
+import { PageHeader, DataSourceBadge } from "@/components/PageHeader";
 import { KpiCard } from "@/components/KpiCard";
 import { DonutChart, HBarList, ProgressBar, type Slice, type HBar } from "@/components/charts";
 import { EmptyState } from "@/components/ui";
@@ -36,6 +36,7 @@ export default function StatsPage() {
         <PageHeader
           title="My stats"
           subtitle={`${viewedUser.name} — ${viewedUser.department}`}
+          right={<DataSourceBadge status="demo" />}
         />
         <EmptyState
           icon={<ShieldCheck className="h-9 w-9" />}
@@ -69,6 +70,7 @@ export default function StatsPage() {
       <PageHeader
         title="My stats"
         subtitle={`${viewedUser.name} — ${viewedUser.department}`}
+        right={<DataSourceBadge status="demo" />}
       />
 
       {/* KPI grid */}
