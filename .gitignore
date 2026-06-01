@@ -11,3 +11,4 @@ data/gdpr.db
 .idea/
 .junie/
 app/NER_key.py
+credentials.json

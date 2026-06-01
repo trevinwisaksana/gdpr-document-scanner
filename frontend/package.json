@@ -1,0 +1,31 @@
+{
+  "name": "gdpr-data-discovery-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "GDPR Data Discovery — frontend for the Bosch GDPR document scanner. Deploys to Vercel, talks to the Cloud Run backend.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "clsx": "2.1.1",
+    "lucide-react": "0.454.0",
+    "next": "^16.2.6",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "recharts": "2.13.3"
+  },
+  "devDependencies": {
+    "@types/node": "20.16.5",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "autoprefixer": "10.4.20",
+    "eslint": "^10.4.1",
+    "eslint-config-next": "^16.2.6",
+    "postcss": "8.4.49",
+    "tailwindcss": "3.4.15",
+    "typescript": "5.6.3"
+  }
+}

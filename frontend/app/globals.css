@@ -1,0 +1,156 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --accent: #0891b2;
+    --accent-strong: #0e7490;
+    --shadow-sm: 0 1px 2px rgba(79, 100, 128, 0.06), 0 1px 1px rgba(79, 100, 128, 0.04);
+    --shadow-md: 0 4px 14px rgba(50, 70, 100, 0.08), 0 1px 3px rgba(50, 70, 100, 0.05);
+    --shadow-lg: 0 18px 48px rgba(40, 60, 90, 0.14);
+  }
+
+  html,
+  body {
+    @apply bg-bg text-ink font-sans antialiased;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  ::selection {
+    background: #cffafe;
+  }
+
+  /* Thin, unobtrusive scrollbars */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #d3dbe6;
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #b9c4d2;
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  /* ── Cards & surfaces ──────────────────────────────────────────────── */
+  .card {
+    @apply bg-surface border border-line rounded-xl shadow-sm;
+  }
+  .card-pad {
+    @apply card p-4;
+  }
+
+  /* ── Section label (uppercase divider) ─────────────────────────────── */
+  .section-label {
+    @apply flex items-center gap-2 text-[0.7rem] font-semibold tracking-[0.07em] uppercase text-ink-faint my-3;
+  }
+  .section-label::after {
+    content: "";
+    @apply flex-1 h-px bg-line-soft;
+  }
+
+  /* ── Buttons ───────────────────────────────────────────────────────── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-[9px] border border-line bg-surface
+           px-3.5 py-2 text-[0.82rem] font-medium text-ink shadow-sm
+           transition-colors hover:border-ink-faint hover:bg-surface-alt
+           disabled:opacity-50 disabled:pointer-events-none whitespace-nowrap;
+  }
+  .btn-primary {
+    @apply border-accent bg-accent text-white hover:bg-accent-strong hover:border-accent-strong;
+  }
+  .btn-danger {
+    @apply border-danger-line bg-danger-soft text-danger-text hover:bg-danger hover:text-white hover:border-danger;
+  }
+  .btn-ok {
+    @apply border-ok-line bg-ok-soft text-ok-text hover:bg-ok hover:text-white hover:border-ok;
+  }
+  .btn-flag {
+    @apply border-flag-line bg-flag-soft text-flag-text hover:bg-flag hover:text-white hover:border-flag;
+  }
+  .btn-sm {
+    @apply px-2.5 py-1.5 text-[0.76rem];
+  }
+  .btn-icon {
+    @apply h-9 w-9 p-0;
+  }
+
+  /* ── Badges & pills ────────────────────────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center gap-1.5 rounded-md border border-transparent px-2 py-0.5
+           text-[0.68rem] font-semibold whitespace-nowrap;
+  }
+  .badge-mono {
+    @apply font-mono font-medium text-[0.66rem] bg-surface-alt text-ink-muted border-line;
+  }
+  .article-pill {
+    @apply inline-block font-mono text-[0.66rem] font-semibold text-accent-strong
+           bg-accent-soft border border-accent-line px-1.5 py-px rounded-[5px];
+  }
+
+  /* ── Priority pills ────────────────────────────────────────────────── */
+  .pri {
+    @apply inline-flex items-center gap-1.5 rounded-[5px] border px-2 py-0.5
+           text-[0.64rem] font-bold tracking-[0.05em] uppercase font-mono;
+  }
+  .pri-high {
+    @apply bg-danger-soft text-danger-text border-danger-line;
+  }
+  .pri-medium {
+    @apply bg-flag-soft text-flag-text border-flag-line;
+  }
+  .pri-low {
+    @apply bg-surface-alt text-ink-faint border-line;
+  }
+
+  /* ── Inputs ────────────────────────────────────────────────────────── */
+  .input {
+    @apply w-full rounded-[9px] border border-line bg-surface px-3 py-2 text-[0.85rem] text-ink
+           outline-none transition focus:border-accent focus:ring-2 focus:ring-accent-soft
+           placeholder:text-ink-faint;
+  }
+  .label-tiny {
+    @apply text-[0.68rem] font-semibold tracking-[0.07em] uppercase text-ink-faint;
+  }
+
+  /* ── Snippet / code ────────────────────────────────────────────────── */
+  .snippet {
+    @apply block font-mono text-[0.76rem] bg-surface border border-line rounded-lg
+           px-3 py-2.5 text-ink whitespace-pre-wrap break-words leading-relaxed;
+  }
+
+  /* ── Scan beam animation ───────────────────────────────────────────── */
+  .scan-beam-wrap {
+    @apply relative bg-surface border border-line rounded-[10px] overflow-hidden h-[60px];
+  }
+  .scan-beam {
+    @apply absolute left-0 top-0 w-full h-0.5 animate-scanSweep;
+    background: linear-gradient(90deg, transparent, var(--accent) 50%, transparent);
+  }
+
+  /* ── Skeleton shimmer ──────────────────────────────────────────────── */
+  .skeleton {
+    @apply rounded-md;
+    background: linear-gradient(90deg, #eef2f7 25%, #e3e9f1 50%, #eef2f7 75%);
+    background-size: 800px 100%;
+    @apply animate-shimmer;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
