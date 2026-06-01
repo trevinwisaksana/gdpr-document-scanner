@@ -40,6 +40,14 @@ These endpoints return live values from the Postgres `drive_files` table. They d
 | `GET` | `/kpis/owners` | Distinct non-empty owners from `drive_files`. | `{"owners": [<string>, ...]}` |
 | `GET` | `/kpis/flagged-files-per-owner` | Flagged-file counts grouped by owner. | `{"items": [{"owner": "...", "flagged_files": <int>}, ...]}` |
 
+These endpoints return historical trends from `kpi_snapshots`.
+
+| Method | Path | Purpose | Response |
+|---|---|---|---|
+| `GET` | `/kpis/total-files-registered-over-time` | `captured_at` plus `total_files_registered`, oldest first. | `{"items": [{"captured_at": "...", "total_files_registered": <int>}, ...]}` |
+| `GET` | `/kpis/total-files-flagged-over-time` | `captured_at` plus `total_files_flagged`, oldest first. | `{"items": [{"captured_at": "...", "total_files_flagged": <int>}, ...]}` |
+| `GET` | `/kpis/percentage-files-flagged-over-time` | `captured_at` plus `percentage_files_flagged`, oldest first. | `{"items": [{"captured_at": "...", "percentage_files_flagged": <float>}, ...]}` |
+
 ## User File View
 
 | Method | Path | Purpose | Response |

@@ -322,3 +322,90 @@ def list_kpi_snapshots(limit: int = 20) -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+
+def total_files_over_time() -> list[dict[str, Any]]:
+    """Return the registered-file trend over time, oldest first."""
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is not set")
+    if psycopg2 is None:
+        raise RuntimeError("psycopg2 is not installed")
+
+    with psycopg2.connect(database_url, connect_timeout=5) as conn:
+        _ensure_snapshot_schema(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT captured_at, total_files_registered
+                FROM kpi_snapshots
+                ORDER BY 1
+                """
+            )
+            rows = cur.fetchall()
+
+    return [
+        {
+            "captured_at": row[0],
+            "total_files_registered": int(row[1]),
+        }
+        for row in rows
+    ]
+
+
+def total_files_flagged_over_time() -> list[dict[str, Any]]:
+    """Return the flagged-file trend over time, oldest first."""
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is not set")
+    if psycopg2 is None:
+        raise RuntimeError("psycopg2 is not installed")
+
+    with psycopg2.connect(database_url, connect_timeout=5) as conn:
+        _ensure_snapshot_schema(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT captured_at, total_files_flagged
+                FROM kpi_snapshots
+                ORDER BY 1
+                """
+            )
+            rows = cur.fetchall()
+
+    return [
+        {
+            "captured_at": row[0],
+            "total_files_flagged": int(row[1]),
+        }
+        for row in rows
+    ]
+
+
+def percentage_files_flagged_over_time() -> list[dict[str, Any]]:
+    """Return the flagged-percentage trend over time, oldest first."""
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is not set")
+    if psycopg2 is None:
+        raise RuntimeError("psycopg2 is not installed")
+
+    with psycopg2.connect(database_url, connect_timeout=5) as conn:
+        _ensure_snapshot_schema(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT captured_at, percentage_files_flagged
+                FROM kpi_snapshots
+                ORDER BY 1
+                """
+            )
+            rows = cur.fetchall()
+
+    return [
+        {
+            "captured_at": row[0],
+            "percentage_files_flagged": float(row[1]),
+        }
+        for row in rows
+    ]
