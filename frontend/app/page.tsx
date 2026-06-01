@@ -16,6 +16,7 @@ interface DemoChip {
 const DEMO_CHIPS: DemoChip[] = [
   { username: "admin", password: "admin", label: "Administrator (DPO)", role: "Full org-wide oversight" },
   { username: "user", password: "user", label: "Employee", role: "Your own flagged files" },
+  { username: "trevin", password: "trevin", label: "Trevin Wisaksana", role: "Engineering — your files" },
 ];
 
 export default function LoginPage() {

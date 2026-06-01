@@ -26,6 +26,7 @@ export const DEMO_USERS: User[] = [
   { id: "priya_nair", name: "Priya Nair", email: "priya.nair@bosch.example", role: "employee", department: "Facilities" },
   { id: "jonas_keller", name: "Jonas Keller", email: "jonas.keller@bosch.example", role: "employee", department: "Sales DACH" },
   { id: "emp_clean", name: "Tom Richter", email: "tom.richter@bosch.example", role: "employee", department: "IT Operations" },
+  { id: "trevin_wisaksana", name: "Trevin Wisaksana", email: "twisaksana@gmail.com", role: "employee", department: "Engineering" },
   { id: "admin_dpo", name: "Klaus Weber", email: "klaus.weber@bosch.example", role: "admin", department: "Data Protection Office" },
 ];
 
@@ -33,6 +34,7 @@ export const DEMO_USERS: User[] = [
 export const CREDENTIALS: Record<string, { password: string; userId: string }> = {
   admin: { password: "admin", userId: "admin_dpo" },
   user: { password: "user", userId: "steward_comp" },
+  trevin: { password: "trevin", userId: "trevin_wisaksana" },
 };
 
 export const DEFAULT_EMPLOYEE_ID = "steward_comp";
@@ -443,6 +445,46 @@ Lukas Wagner | l.wagner@kunde-dach.de | tel +43 1 9000 200`,
       { category: "billing_shipping_address", snippet: "Hohenzollernring 72, 50672 Köln", confidence: 0.78, detector: "ner" },
     ],
   },
+  {
+    name: "API_Integration_Spec.pdf",
+    source: "gdrive",
+    owner: "trevin_wisaksana",
+    modified: D("2026-05-10"),
+    size: 312_000,
+    text: `API INTEGRATION SPECIFICATION
+Engineer: Trevin Wisaksana
+Email: twisaksana@gmail.com
+Phone: +1 415 555 0192
+Third-party contact: James Tan | james.tan@partner-api.io | +1 650 555 0134
+Data processed: user authentication tokens, session IDs`,
+    findings: [
+      { category: "name", snippet: "Engineer: Trevin Wisaksana", confidence: 0.9, detector: "ner" },
+      { category: "email", snippet: "twisaksana@gmail.com", confidence: 0.99, detector: "regex" },
+      { category: "phone", snippet: "+1 415 555 0192", confidence: 0.96, detector: "regex" },
+      { category: "email", snippet: "james.tan@partner-api.io", confidence: 0.99, detector: "regex" },
+    ],
+  },
+  {
+    name: "Contractor_Agreement_2026.docx",
+    source: "gdrive",
+    owner: "trevin_wisaksana",
+    master: "trevin_wisaksana",
+    modified: D("2026-03-18"),
+    size: 198_400,
+    text: `CONTRACTOR AGREEMENT
+Contractor: Trevin Wisaksana
+Home address: 123 Market Street, San Francisco, CA 94105, USA
+National ID: 987-65-4321
+Bank account: ****1842 (Wells Fargo)
+Signature: T. Wisaksana (18 March 2026)`,
+    findings: [
+      { category: "name", snippet: "Contractor: Trevin Wisaksana", confidence: 0.91, detector: "ner" },
+      { category: "home_address", snippet: "123 Market Street, San Francisco, CA 94105, USA", confidence: 0.83, detector: "ner" },
+      { category: "id_card", snippet: "National ID: 987-65-4321", confidence: 0.94, detector: "regex" },
+      { category: "financial", snippet: "Bank account: ****1842 (Wells Fargo)", confidence: 0.88, detector: "regex" },
+      { category: "signature", snippet: "Signature: T. Wisaksana (18 March 2026)", confidence: 0.7, detector: "llm" },
+    ],
+  },
 ];
 
 // ── Clean files (processed, no findings) — make KPIs / source mix realistic ────
@@ -459,6 +501,8 @@ const CLEAN: Array<{ name: string; source: SourceType; owner: string; master?: s
   { name: "Marketing_Brand_Guide.pdf", source: "onedrive", owner: "jonas_keller", modified: D("2026-01-30"), size: 8_400_000 },
   { name: "Sprint_Retro_Board.png", source: "fileshare", owner: "emp_clean", modified: D("2026-05-22"), size: 980_000 },
   { name: "Open_Source_Licenses.txt", source: "fileshare", owner: "emp_clean", modified: D("2026-04-01"), size: 33_900 },
+  { name: "System_Design_Doc.pdf", source: "gdrive", owner: "trevin_wisaksana", modified: D("2026-05-14"), size: 1_340_000 },
+  { name: "Deployment_Runbook.md", source: "gdrive", owner: "trevin_wisaksana", modified: D("2026-05-22"), size: 18_200 },
 ];
 
 export const DEMO_FILES: ScannedFile[] = [
