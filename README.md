@@ -1,223 +1,173 @@
 # GDPR Data Discovery
 
-Built for the **TECHon hackathon — Bosch GDPR challenge**. A FastAPI service that scans documents for personally identifiable information (PII) and GDPR-relevant data, containerized for Cloud Run.
+Built for the **TECHon hackathon — Bosch GDPR challenge**. Scans Google Drive for personally identifiable information (PII), stores results in Postgres, and surfaces findings through a web dashboard.
 
 ---
 
-## 🔗 Live demo
+## Live demo
 
-> **TODO: paste your Streamlit Cloud URL here once deployed**
-> e.g. `https://yourname-gdpr-xxxx.streamlit.app`
+**[https://gdpr-document-scanner-gamma.vercel.app/](https://gdpr-document-scanner-gamma.vercel.app/)**
 
-Once that link is up, teammates just open it in a browser — no setup needed.
+Sign in with:
+
+| Username | Password | View |
+|----------|----------|------|
+| `admin` | `admin` | Admin (Data Protection Officer) — full dashboard, KPIs, scan controls |
+| `user` | `user` | Employee — file review UI |
+
+> The frontend ships with a bundled demo dataset so every screen is interactive without a backend. When `NEXT_PUBLIC_API_BASE_URL` is set, admin KPIs and owner data switch to live Postgres data automatically.
 
 ---
 
-## Run locally (for development)
+## Architecture
 
-Only needed if you want to work on the code. Teammates who just want to see the demo should use the link above.
+```
+Lister cronjob → Postgres → Extractor consumer → Pub/Sub → Scanner consumer → Postgres
+                                                                                    ↓
+                                                                        FastAPI backend (GCP Cloud Run)
+                                                                                    ↓
+                                                                        Next.js frontend (Vercel)
+```
 
-**You need:** Python 3.10+, Git
+1. **Lister** (`jobs/listing.py`) — Cloud Run Job on a schedule. Lists all files in Google Drive and upserts metadata into the `drive_files` Postgres table.
+2. **Extractor consumer** (`services/extraction_consumer.py`) — Pulls file metadata from Pub/Sub, downloads and extracts text, publishes to the scanner topic.
+3. **Scanner consumer** (`services/scanner_consumer.py`) — Pulls extracted text, runs the detection pipeline, writes `status_flag`, `pii_category`, and `detection_stage` back to Postgres.
+4. **FastAPI backend** (`app/main.py`) — Cloud Run service. Reads from Postgres and exposes KPI, file, and scan endpoints.
+5. **Next.js frontend** (`frontend/`) — Vercel deployment. Admin dashboard + employee file review UI.
+
+---
+
+## Detection pipeline
+
+Three-tier cascade in `app/process.py → scan_text()`, stops at first hit:
+
+1. **Regex** (`detectors/regex.py`) — fast, deterministic. Emails, phones, IP addresses, credit cards, IBANs, SSNs, dates of birth, usernames, signatures, ID documents.
+2. **Azure NER** (`app/NER.py`) — if regex finds nothing. Calls Azure Language Service. High-confidence findings (≥ 0.85) kept directly; low-confidence ones passed to LLM verify.
+3. **LLM verify / detect** (`app/llm_fallback.py`) — confirms low-confidence NER hits, or runs a full PII scan if both regex and NER find nothing. Uses OpenRouter / Qwen.
+
+---
+
+## Frontend pages
+
+### Admin view
+
+| Page | What it shows | Data source |
+|------|--------------|-------------|
+| **Dashboard** | KPI cards (files registered, processed, flagged, not flagged, flag rate), file outcome donut chart, flagged files per Drive owner | Live from Postgres |
+| **Scan** | Live text scanner — paste any text, run the full detection pipeline, see PII highlighted inline with category toggles | Live (calls `POST /scan/text`) |
+| **History** | Trend chart of files flagged / findings / scanned per scan run | Demo data |
+| **Users** | Flagged file count per Drive owner, sorted by exposure | Live from Postgres |
+| **Settings** | Connector toggles (Google Drive, OneDrive, SharePoint, file share), retention period, delta scan frequency | Local (localStorage) |
+
+### Employee view
+
+| Page | What it shows | Data source |
+|------|--------------|-------------|
+| **Files** | Flagged files assigned to you, sorted by risk. Bulk actions: mark for deletion, cancel (false positive), extend retention. Search and filter. | Demo data |
+| **File viewer** | Document preview with PII highlighted inline, prev/next navigation through flagged files, per-finding cards (category, confidence, GDPR articles, snippet), AI summary via local Ollama | Demo data |
+| **Stats** | Files assigned / deleted / pending / cancelled / extended, category breakdown donut, review progress | Demo data |
+| **Settings** | Hide low-risk files, sort order, compact view, Ollama model selection, notification preferences | Local (localStorage) |
+
+---
+
+## Backend API endpoints
+
+Base URL: `https://dashboard-http-95861934207.us-central1.run.app`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Liveness check |
+| `POST` | `/scan/text` | Scan raw text through the full detection pipeline (regex → NER → LLM) |
+| `GET` | `/kpis/total-files-registered` | Total files in Drive |
+| `GET` | `/kpis/total-files-flagged` | Files with PII found |
+| `GET` | `/kpis/total-files-processed` | Files scanned |
+| `GET` | `/kpis/percentage-files-flagged` | Flag rate |
+| `GET` | `/kpis/owners` | All Drive file owners |
+| `GET` | `/kpis/flagged-files-per-owner` | Flagged file count per owner |
+| `GET` | `/users/{user_id}/files` | Flagged files for a user |
+| `PATCH` | `/findings/{finding_id}/status` | Update finding decision (`keep` / `delete` / `false_positive`) |
+| `POST` | `/workflows/drive/scan` | Trigger a Google Drive scan |
+
+---
+
+## Run the frontend locally
 
 ```bash
-git pull
-./start.sh
+cd frontend
+npm install
+cp .env.example .env.local   # optional — runs on demo data without it
+npm run dev
+# open http://localhost:3000
 ```
 
-First run takes ~3 minutes (downloads the spaCy NLP model ~750 MB and seeds the database). After that, starts in seconds.
+### Environment variables
 
-If port is in use: `lsof -ti:8501 | xargs kill` then re-run.
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `NEXT_PUBLIC_API_BASE_URL` | _(empty)_ | GCP Cloud Run base URL. Leave blank for full demo mode. |
+| `NEXT_PUBLIC_DEMO_MODE` | `false` | Force demo mode even if API URL is set. |
+| `NEXT_PUBLIC_OLLAMA_URL` | `http://localhost:11434` | Local Ollama for AI file summaries (called from the browser). |
+| `NEXT_PUBLIC_OLLAMA_MODEL` | `llama3.2` | Ollama model to use. |
 
-### Demo accounts
-
-Sign in as any of these to explore different views:
-
-| Account | Role | What you see |
-|---|---|---|
-| **Amara Okafor** | Employee | Her flagged files with PII findings, sorted by risk |
-| **Tom Richter** | Employee | No flagged files (shows the empty state) |
-| **Klaus Weber** | Admin (DPO) | Full dashboard — KPIs, scan controls, all findings |
-
-### What the scan actually does
-
-When the app boots (or you press **Run Full Scan** as admin), it reads the real PDF/DOCX files in `sample-data/` and runs three layers of detection:
-
-1. **Text extraction** (`core/ingestion.py`) — `pdfplumber` / `python-docx`
-2. **Regex detectors** (`scanner/detectors.py`) — label-proximity patterns for emails, phones, addresses, passport/ID numbers, names, signatures
-3. **NER via spaCy + Presidio** (`core/pii_detector.py`) — catches person names the regex labels miss
-4. **LLM verification** (`core/llm_fallback.py`) — optional, off by default; set `OPENROUTER_API_KEY` in `.env` to enable
-
-Results are saved to `data/gdpr.db` (SQLite). Delta scans skip unchanged files.
-
-### What's real vs demo data
-
-| Thing | Real or fake? |
-|---|---|
-| PDF/DOCX files scanned | Real files in `sample-data/` |
-| PII findings and snippets shown | Real — extracted from actual file content |
-| 3-year retention flag | Real — compares actual file modification timestamps |
-| NER name detection | Real — spaCy `en_core_web_lg` model |
-| Demo users (Amara, Tom, Klaus) | Fake — seeded for demo purposes |
-| File ownership attribution | Fake — inferred from filename keywords, not real metadata |
-
-### Priority levels
-
-Files and findings are sorted and coloured by risk:
-
-| Priority | PII categories |
-|---|---|
-| 🔴 High | Passport, ID card, Driver's licence, Signature, Photo/video |
-| 🟡 Medium | Home address, Billing/shipping address, Email, Phone, Fax |
-| ⚪ Low | Name, Username/login, Travel history |
-
-### Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| `./start.sh` permission denied | Run `chmod +x start.sh` first |
-| Port 8501 already in use | Kill the existing process: `lsof -ti:8501 \| xargs kill` |
-| Blank screen / no demo data | Delete `data/gdpr.db` and restart — forces re-seed |
-| spaCy model missing | Run `venv/bin/python -m spacy download en_core_web_lg` |
+For the Ollama summary to work: `OLLAMA_ORIGINS=* ollama serve`
 
 ---
 
-## Deploying the Streamlit UI
-
-The UI currently runs locally only. To share it with others:
-
-**Option A — Streamlit Community Cloud (easiest, free)**
-1. Push the repo to GitHub
-2. Go to [share.streamlit.io](https://share.streamlit.io) → deploy → point at `app.py`
-3. Everyone gets a public URL, no server needed
-
-**Option B — Cloud Run (same infra as the backend)**
-```bash
-# Build and deploy (adjust project/region as needed)
-gcloud run deploy gdpr-ui \
-  --source . \
-  --command "streamlit,run,app.py" \
-  --args "--server.port=8080,--server.headless=true" \
-  --region us-central1 \
-  --allow-unauthenticated
-```
-
----
-
-## Backend scanner / NER pipeline
-
-```
-app/
-  main.py        FastAPI entry point — `/health` and `/scan/text`
-  process.py     Scan orchestration — scan files, route findings to handlers
-  file_reader.py Text extraction for PDF, DOCX, PPTX, XLSX, CSV, HTML, RTF, and plain text
-detectors/
-  regex.py       Pure-regex PII detector — no NER or external model dependencies
-tests/           pytest test suite
-```
-
-**Deployment**: Cloud Build (`cloudbuild.yaml`) builds a Docker image, pushes to Artifact Registry (`us-central1`), and deploys to Cloud Run using the commit SHA as the image tag.
-
-### Detected PII categories
-
-The regex detector covers 19 categories:
-
-| Category | Description |
-|---|---|
-| `name` | Person names via label proximity |
-| `username` / `user_id` | Login names, employee IDs (e.g. `E-20491`) |
-| `email` | Email addresses |
-| `phone` / `fax` | Phone and fax numbers (international formats) |
-| `home_address` | Street addresses, German postal codes |
-| `billing_shipping_address` | Billing and shipping addresses |
-| `passport` | Passport numbers |
-| `id_card` | National ID / tax ID / VAT ID |
-| `drivers_license` | Driver's licence numbers |
-| `signature` | Signature blocks |
-| `photo_video` | References to photo/video files or attachments |
-| `travel_history` | Itineraries, flight references, trip mentions |
-| `ip_address` | IPv4 and IPv6 addresses |
-| `credit_card` | Visa, MC, Amex, Discover card numbers |
-| `iban` | International bank account numbers |
-| `ssn` | US Social Security Numbers |
-| `nhs_number` | UK NHS numbers |
-| `date_of_birth` | Labelled date-of-birth fields |
-
-### Run the pipeline directly
+## Run the backend locally
 
 ```bash
 pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8080
 ```
 
-Or via `run.py` CLI:
-```bash
-python run.py ./sample-data
-```
-
 ### Environment variables
 
-| Variable | Default | Description |
-|---|---|---|
-| `PORT` | `8080` | Port the Cloud Run container listens on |
-| `ALLOWED_ORIGINS` | `*` | Comma-separated CORS origins for the API |
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | Postgres connection string (reads `drive_files` + `kpi_snapshots`) |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to service account JSON (`credentials.json`) |
+| `SOURCE_FOLDER_ID` | Google Drive folder to scan (`root` for all) |
+| `PUBSUB_SUBSCRIPTION` | Pub/Sub subscription for each consumer |
+| `SCANNER_PUBSUB_TOPIC` | Pub/Sub topic the extractor publishes to |
+| `NER_SUBSCRIPTION_KEY` | Azure Language service key |
+| `OPENROUTER_API_KEY` | OpenRouter API key (LLM fallback) |
+| `OPENROUTER_MODEL` | Model to use (default: `qwen/qwen3-8b`) |
 
-Copy `.env.example` to `.env` to set these locally.
+---
 
-### Workflow endpoints
+## Deployment
 
-The API exposes two trigger endpoints:
+### Frontend → Vercel
+1. In Vercel → New Project → import this repo
+2. Set **Root Directory** to `frontend/`
+3. Add environment variables (optional)
+4. Deploy
 
-```bash
-POST /scan/text
-POST /workflows/drive/scan
-```
+### Backend → Google Cloud Run
+Cloud Build (`cloudbuild.yaml`) builds and deploys the scanner consumer automatically on push.
 
-`/scan/text` scans already-extracted text. `/workflows/drive/scan` lists Drive files and enqueues them for extraction and PII scanning via Pub/Sub.
-
-### Batch processing API
-
-```python
-from app.process import run, RegexDetectorConfig
-
-results = run(["report.pdf", "employees.csv"])
-# Each result: ScanResult(file_path, findings=[{category, start, end, snippet}], category=...)
-```
-
-Disable specific detectors:
-```python
-from detectors.regex import RegexDetectorConfig
-config = RegexDetectorConfig(ip_addresses=False, ssn=False)
-results = run(file_paths, config=config)
-```
-
-### Supported file types
-
-`PDF`, `DOCX`, `PPTX`, `XLSX` / `XLS`, `CSV`, `HTML`, `RTF`, `TXT`, `MD`, `LOG`, `JSON`, `XML`, `YAML`
-
-### Tests
-
-```bash
-pytest
-```
-
-### Deploy the backend
-
-Triggered automatically by Cloud Build on push. Manual deploy:
-
+Manual deploy:
 ```bash
 gcloud builds submit --config cloudbuild.yaml
 ```
 
-The container runs as a non-root `appuser` (see `Dockerfile`). Logs are structured JSON, compatible with Cloud Logging. Update `cloudbuild.yaml` if you need a different service name, region, or env var set.
+| Dockerfile | Service |
+|------------|---------|
+| `Dockerfile` | Dashboard HTTP (FastAPI backend) |
+| `Dockerfile.job` | Lister cronjob |
+| `Dockerfile.consumer` | Extractor consumer |
+| `Dockerfile.scanner` | Scanner consumer |
 
-### Local dev environment variables
+---
 
-| Variable | Default | Description |
-|---|---|---|
-| `PORT` | `8080` | Cloud Run port |
-| `OPENROUTER_API_KEY` | — | Enables LLM fallback for low-confidence findings |
-| `SCAN_TARGET_DIR` | `./sample-data` | Directory to scan |
-| `GDPR_DB` | `./data/gdpr.db` | SQLite database path |
-| `RETENTION_YEARS` | `3` | Files older than this flagged as past retention |
+## Supported file types
 
-Copy `.env.example` to `.env` to set these locally.
+`PDF`, `DOCX`, `PPTX`, `XLSX`, `XLS`, `CSV`, `TXT`, `HTML`, `RTF`
+
+---
+
+## Tests
+
+```bash
+pytest
+```
