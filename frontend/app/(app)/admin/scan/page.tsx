@@ -223,10 +223,9 @@ export default function LiveScanPage() {
 
           <div className="rounded-xl border border-dashed border-line bg-surface-alt px-4 py-3.5 text-[0.78rem] leading-relaxed text-ink-muted">
             <p className="mb-1 font-semibold text-ink">How it works</p>
-            The text never touches Google Drive — it runs through the same{" "}
-            <code className="font-mono text-ink">scan_text()</code> pipeline the background scanner
-            uses: deterministic regex first, then Azure NER, then an LLM verifier for low-confidence
-            hits.
+            This panel does not use Google Drive. It is here to show coverage of our regex detectors,
+            while NER is handled by Azure Language, which is already strong enough to catch most
+            entity matches before verification.
           </div>
         </div>
       </div>
