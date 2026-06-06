@@ -13,8 +13,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from app.gdrive_extractor import GDriveLister
-from app.KPR_functions import (
+from app.drive.extractor import GDriveLister
+from app.db.kpis import (
     flagged_files_for_owner,
     flagged_files_per_owner,
     list_all_owners,

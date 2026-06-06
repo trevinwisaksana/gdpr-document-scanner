@@ -96,7 +96,7 @@ def setup_topics_and_subscriptions() -> None:
 
 def stage_listing() -> list[dict]:
     print("\n=== Stage 1: Listing ===")
-    from app.gdrive_extractor import GDriveLister
+    from app.drive.extractor import GDriveLister
     from google.cloud import pubsub_v1
 
     lister    = GDriveLister()
@@ -112,7 +112,7 @@ def stage_listing() -> list[dict]:
 
 def stage_extraction(num_messages: int) -> None:
     print("\n=== Stage 2: Extraction consumer ===")
-    from app.gdrive_downloader import GDriveDownloader
+    from app.drive.downloader import GDriveDownloader
     from google.cloud import pubsub_v1
 
     subscriber = pubsub_v1.SubscriberClient()

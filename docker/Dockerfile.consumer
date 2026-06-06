@@ -4,13 +4,12 @@ WORKDIR /app
 
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 
-COPY requirements.scanner.txt .
-RUN pip install --no-cache-dir -r requirements.scanner.txt
+COPY docker/requirements.consumer.txt .
+RUN pip install --no-cache-dir -r requirements.consumer.txt
 
 COPY app/ app/
-COPY detectors/ detectors/
 COPY services/ services/
 
 USER appuser
 
-CMD ["python", "-m", "services.scanner_consumer"]
+CMD ["python", "-m", "services.extraction_consumer"]

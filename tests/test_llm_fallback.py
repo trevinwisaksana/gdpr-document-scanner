@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.llm_fallback import llm_detect_pii
+from app.detection.llm_fallback import llm_detect_pii
 
 
 def _mock_response(content: str, status: int = 200):
@@ -33,21 +33,22 @@ class TestLlmDetectPii:
 
     def test_parses_findings_correctly(self, monkeypatch):
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        # LLM prompt instructs the model NOT to return snippets, so payload has no snippet field
         payload = json.dumps([
-            {"category": "name", "snippet": "John Smith", "confidence": 0.95},
-            {"category": "home_address", "snippet": "10 Downing Street", "confidence": 0.9},
+            {"category": "name", "confidence": 0.95},
+            {"category": "home_address", "confidence": 0.9},
         ])
-        with patch("app.llm_fallback.requests.post", return_value=_mock_response(payload)):
+        with patch("app.detection.llm_fallback.requests.post", return_value=_mock_response(payload)):
             findings = llm_detect_pii("John Smith lives at 10 Downing Street")
 
         assert len(findings) == 2
-        assert findings[0] == {"category": "name", "snippet": "John Smith", "confidence": 0.95, "source": "llm"}
-        assert findings[1] == {"category": "home_address", "snippet": "10 Downing Street", "confidence": 0.9, "source": "llm"}
+        assert findings[0] == {"category": "name", "confidence": 0.95, "source": "llm"}
+        assert findings[1] == {"category": "home_address", "confidence": 0.9, "source": "llm"}
 
     def test_all_findings_tagged_with_source_llm(self, monkeypatch):
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
         payload = json.dumps([{"category": "email", "snippet": "a@b.com", "confidence": 0.99}])
-        with patch("app.llm_fallback.requests.post", return_value=_mock_response(payload)):
+        with patch("app.detection.llm_fallback.requests.post", return_value=_mock_response(payload)):
             findings = llm_detect_pii("email a@b.com")
 
         assert all(f["source"] == "llm" for f in findings)
@@ -55,19 +56,19 @@ class TestLlmDetectPii:
     def test_returns_empty_on_network_error(self, monkeypatch):
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
         import requests as req
-        with patch("app.llm_fallback.requests.post", side_effect=req.ConnectionError("offline")):
+        with patch("app.detection.llm_fallback.requests.post", side_effect=req.ConnectionError("offline")):
             result = llm_detect_pii("some text")
         assert result == []
 
     def test_returns_empty_on_http_error(self, monkeypatch):
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-        with patch("app.llm_fallback.requests.post", return_value=_mock_response("", status=401)):
+        with patch("app.detection.llm_fallback.requests.post", return_value=_mock_response("", status=401)):
             result = llm_detect_pii("some text")
         assert result == []
 
     def test_returns_empty_when_llm_returns_empty_array(self, monkeypatch):
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-        with patch("app.llm_fallback.requests.post", return_value=_mock_response("[]")):
+        with patch("app.detection.llm_fallback.requests.post", return_value=_mock_response("[]")):
             result = llm_detect_pii("The quarterly report covers operational metrics.")
         assert result == []
 
@@ -77,14 +78,14 @@ class TestLlmDetectPii:
             {"snippet": "no category"},
             {"category": "name", "snippet": "Alice"},
         ])
-        with patch("app.llm_fallback.requests.post", return_value=_mock_response(payload)):
+        with patch("app.detection.llm_fallback.requests.post", return_value=_mock_response(payload)):
             findings = llm_detect_pii("Alice")
         assert len(findings) == 1
         assert findings[0]["category"] == "name"
 
     def test_returns_empty_on_non_json_response(self, monkeypatch):
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-        with patch("app.llm_fallback.requests.post", return_value=_mock_response("not json at all")):
+        with patch("app.detection.llm_fallback.requests.post", return_value=_mock_response("not json at all")):
             result = llm_detect_pii("some text")
         assert result == []
 

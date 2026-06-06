@@ -14,9 +14,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from app.file_reader import extract_text
-from app.NER import ner_inference
-from app.llm_fallback import llm_detect_pii, llm_verify_findings
+from app.extraction.reader import extract_text
+from app.detection.ner import ner_inference
+from app.detection.llm_fallback import llm_detect_pii, llm_verify_findings
 from detectors.regex import (
     RegexDetectorConfig, detect_pii,
     NAME, EMAIL, PHONE, IP_ADDRESS,

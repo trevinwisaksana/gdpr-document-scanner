@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from google.cloud import pubsub_v1
 
-from app.gdrive_downloader import GDriveDownloader
+from app.drive.downloader import GDriveDownloader
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -51,6 +51,9 @@ def _get_downloader() -> GDriveDownloader:
     return _thread_local.downloader
 
 
+_SKIP_MIME_PREFIXES = ("image/", "video/")
+
+
 def process_message(
     msg: pubsub_v1.types.ReceivedMessage,
     publisher: pubsub_v1.PublisherClient,
@@ -59,14 +62,23 @@ def process_message(
     """Download, extract, and publish one message. Returns (ack_id, success)."""
     try:
         file = json.loads(msg.message.data.decode("utf-8"))
+        mime_type = file.get("mime_type", "")
+        if any(mime_type.startswith(p) for p in _SKIP_MIME_PREFIXES):
+            logger.info("skipping file_id=%s mime_type=%s", file["file_id"], mime_type)
+            return msg.ack_id, True
+        t0 = time.perf_counter()
         text = _get_downloader().download_and_extract(
             file["file_id"], file["mime_type"], file["name"]
         )
+        extraction_ms = round((time.perf_counter() - t0) * 1000)
         publisher.publish(
             scanner_topic,
             json.dumps({"file_id": file["file_id"], "name": file["name"], "text": text}).encode(),
         ).result()
-        logger.info("processed file_id=%s", file["file_id"])
+        logger.info(
+            "extracted file_id=%s extraction_ms=%d chars=%d",
+            file["file_id"], extraction_ms, len(text),
+        )
         return msg.ack_id, True
     except Exception as exc:
         file_id = "unknown"

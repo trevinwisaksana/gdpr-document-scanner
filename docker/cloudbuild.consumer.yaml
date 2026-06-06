@@ -1,0 +1,24 @@
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - build
+      - -f
+      - docker/Dockerfile.consumer
+      - -t
+      - us-central1-docker.pkg.dev/summer-bond-461608-i5/cloud-run-source-deploy/gdpr-extraction-consumer:$COMMIT_SHA
+      - .
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - push
+      - us-central1-docker.pkg.dev/summer-bond-461608-i5/cloud-run-source-deploy/gdpr-extraction-consumer:$COMMIT_SHA
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - gdpr-extraction-consumer
+      - --image=us-central1-docker.pkg.dev/summer-bond-461608-i5/cloud-run-source-deploy/gdpr-extraction-consumer:$COMMIT_SHA
+      - --region=us-central1
+      - --no-allow-unauthenticated
+images:
+  - us-central1-docker.pkg.dev/summer-bond-461608-i5/cloud-run-source-deploy/gdpr-extraction-consumer:$COMMIT_SHA
