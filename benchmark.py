@@ -31,7 +31,7 @@ from pathlib import Path
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
-from app.file_reader import extract_text
+from app.extraction.reader import extract_text
 from detectors.regex import detect_pii, RegexDetectorConfig
 
 
@@ -80,7 +80,7 @@ def run_regex(text: str) -> list[dict]:
 
 
 def run_regex_ner(text: str) -> list[dict]:
-    from app.NER import ner_inference
+    from app.detection.ner import ner_inference
     from app.process import _ner_to_findings
 
     findings = detect_pii(text)
@@ -198,7 +198,7 @@ def print_report(results: list[dict], dataset_dir: Path, out_path: Path) -> None
 
 def collect_staging_files(sample: int = 0) -> tuple[list[dict], list[dict]]:
     """List files from staging Google Drive. Returns (pii_files, clean_files)."""
-    from app.gdrive_extractor import GDriveLister
+    from app.drive.extractor import GDriveLister
 
     print("Listing files from staging Google Drive ...")
     lister = GDriveLister()
@@ -217,7 +217,7 @@ def collect_staging_files(sample: int = 0) -> tuple[list[dict], list[dict]]:
 
 def benchmark_detector_staging(name: str, run_fn, pii_files: list[dict], clean_files: list[dict]) -> dict:
     """Benchmark against staging Drive files (downloaded on the fly)."""
-    from app.gdrive_downloader import GDriveDownloader
+    from app.drive.downloader import GDriveDownloader
     downloader = GDriveDownloader()
 
     total_tp = total_fp = total_fn = errors = 0

@@ -3,7 +3,7 @@ import io
 import pytest
 from pathlib import Path
 
-from app.file_reader import extract_text
+from app.extraction.reader import extract_text
 
 SAMPLE = "John Doe lives at 123 Main St and his email is john@example.com"
 

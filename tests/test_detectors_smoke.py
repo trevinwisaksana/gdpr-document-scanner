@@ -24,7 +24,7 @@ load_dotenv()
 logging.basicConfig(level=logging.WARNING, stream=sys.stdout)
 
 import time
-from app.process import scan_document, ScanResult
+from app.process import scan_text, ScanResult
 from scanner import store, gdpr
 
 # ── PDF content for each detection path ───────────────────────────────────────
@@ -186,7 +186,8 @@ if __name__ == "__main__":
 
     for name, _, expected in TESTS:
         pdf = tmp / name
-        result = scan_document(pdf)
+        text = fitz.open(str(pdf))[0].get_text()
+        result = scan_text(text, str(pdf))
 
         # persist to DB
         stat = pdf.stat()

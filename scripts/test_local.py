@@ -13,8 +13,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from app.gdrive_extractor import GDriveLister
-from app.gdrive_downloader import GDriveDownloader
+from app.drive.extractor import GDriveLister
+from app.drive.downloader import GDriveDownloader
 from app.process import scan_text
 
 

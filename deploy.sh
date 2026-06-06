@@ -22,13 +22,13 @@ gcloud artifacts repositories create cloud-run-source-deploy \
   --repository-format=docker --location=$REGION --project=$PROJECT 2>/dev/null || true
 
 echo "=== Building and pushing images ==="
-docker build -f Dockerfile.consumer -t $REGISTRY/gdpr-extraction-consumer:latest .
+docker build -f docker/Dockerfile.consumer -t $REGISTRY/gdpr-extraction-consumer:latest .
 docker push $REGISTRY/gdpr-extraction-consumer:latest
 
-docker build -f Dockerfile.scanner -t $REGISTRY/gdpr-scanner-consumer:latest .
+docker build -f docker/Dockerfile.scanner -t $REGISTRY/gdpr-scanner-consumer:latest .
 docker push $REGISTRY/gdpr-scanner-consumer:latest
 
-docker build -f Dockerfile.listing -t $REGISTRY/gdpr-listing-job:latest .
+docker build -f docker/Dockerfile.listing -t $REGISTRY/gdpr-listing-job:latest .
 docker push $REGISTRY/gdpr-listing-job:latest
 
 echo "=== Creating Pub/Sub topics and subscriptions ==="

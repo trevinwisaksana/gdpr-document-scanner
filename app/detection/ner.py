@@ -1,6 +1,6 @@
 import os
 import requests
-from app.NER_modes import NER_MODES
+from app.detection.ner_modes import NER_MODES
 
 NER_KEY = os.getenv("NER_SUBSCRIPTION_KEY", "")
 

@@ -8,7 +8,7 @@ from typing import Generator
 import psycopg2
 import psycopg2.extras
 from google.cloud import pubsub_v1
-from app.drive_mimes import GOOGLE_EXPORT, SUPPORTED_MIME, build_drive_service
+from app.drive.mimes import GOOGLE_EXPORT, SUPPORTED_MIME, build_drive_service
 
 logger = logging.getLogger(__name__)
 

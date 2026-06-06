@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from google.cloud import pubsub_v1
 
-from app.gdrive_downloader import GDriveDownloader
+from app.drive.downloader import GDriveDownloader
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)

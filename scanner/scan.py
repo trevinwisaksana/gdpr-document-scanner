@@ -17,8 +17,8 @@ import uuid
 from pathlib import Path
 from typing import Callable, Optional
 
-from app.file_reader import extract_text
-from app.KPR_functions import record_kpi_snapshot
+from app.extraction.reader import extract_text
+from app.db.kpis import record_kpi_snapshot
 from scanner import detectors, escalate, ownership, store
 
 logger = logging.getLogger(__name__)

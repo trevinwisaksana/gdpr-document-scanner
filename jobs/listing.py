@@ -4,7 +4,7 @@ Cloud Run Job entrypoint for Google Drive file listing.
 
 import logging
 
-from app.gdrive_extractor import GDriveLister
+from app.drive.extractor import GDriveLister
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)

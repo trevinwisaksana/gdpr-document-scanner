@@ -12,8 +12,8 @@ from google.oauth2 import service_account
 from googleapiclient.http import MediaIoBaseDownload
 import requests
 
-from app.drive_mimes import GOOGLE_EXPORT, SUPPORTED_MIME, build_drive_service
-from app.file_reader import extract_text
+from app.drive.mimes import GOOGLE_EXPORT, SUPPORTED_MIME, build_drive_service
+from app.extraction.reader import extract_text
 
 
 OCR_PDF_MIN_CHARS = int(os.getenv("GDRIVE_OCR_PDF_MIN_CHARS", "80"))

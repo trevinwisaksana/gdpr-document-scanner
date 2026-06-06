@@ -22,61 +22,51 @@ def _make_row(**kwargs):
 
 
 def test_list_flagged_files_returns_404_for_unknown_user():
-    with patch("app.main.store.get_user", return_value=None):
+    with patch("app.main.owner_exists", return_value=False):
         response = client.get("/users/nonexistent/files")
     assert response.status_code == 404
     assert response.json()["detail"] == "user not found"
 
 
 def test_list_flagged_files_returns_files_with_findings():
-    fake_user = _make_row(id="u-1", name="Alice", email="alice@example.com", role="employee")
     fake_files = [
-        _make_row(
-            id="f-1",
-            path="docs/contract.pdf",
-            source_type="onedrive",
-            size_bytes=12000,
-            last_modified=1717000000.0,
-            last_scanned_at=1717100000.0,
-            n_findings=3,
-            categories="email,phone",
-        ),
-        _make_row(
-            id="f-2",
-            path="docs/hr.docx",
-            source_type="sharepoint",
-            size_bytes=8000,
-            last_modified=1716000000.0,
-            last_scanned_at=1716100000.0,
-            n_findings=1,
-            categories="name",
-        ),
+        {
+            "file_id": "f-1",
+            "name": "docs/contract.pdf",
+            "google_created_at": None,
+            "last_seen_at": None,
+            "pii_category": "email",
+        },
+        {
+            "file_id": "f-2",
+            "name": "docs/hr.docx",
+            "google_created_at": None,
+            "last_seen_at": None,
+            "pii_category": "name",
+        },
     ]
 
     with (
-        patch("app.main.store.get_user", return_value=fake_user),
-        patch("app.main.store.flagged_files_for_user", return_value=fake_files),
+        patch("app.main.owner_exists", return_value=True),
+        patch("app.main.flagged_files_for_owner", return_value=fake_files),
     ):
-        response = client.get("/users/u-1/files")
+        response = client.get("/users/alice@example.com/files")
 
     assert response.status_code == 200
     body = response.json()
-    assert body["user_id"] == "u-1"
+    assert body["user_id"] == "alice@example.com"
     assert body["total"] == 2
     assert body["files"][0]["id"] == "f-1"
-    assert body["files"][0]["n_findings"] == 3
-    assert set(body["files"][0]["finding_categories"]) == {"email", "phone"}
+    assert body["files"][0]["finding_categories"] == ["email"]
     assert body["files"][1]["finding_categories"] == ["name"]
 
 
 def test_list_flagged_files_returns_empty_list_when_no_findings():
-    fake_user = _make_row(id="u-2", name="Bob", email="bob@example.com", role="employee")
-
     with (
-        patch("app.main.store.get_user", return_value=fake_user),
-        patch("app.main.store.flagged_files_for_user", return_value=[]),
+        patch("app.main.owner_exists", return_value=True),
+        patch("app.main.flagged_files_for_owner", return_value=[]),
     ):
-        response = client.get("/users/u-2/files")
+        response = client.get("/users/bob@example.com/files")
 
     assert response.status_code == 200
     body = response.json()
@@ -85,25 +75,21 @@ def test_list_flagged_files_returns_empty_list_when_no_findings():
 
 
 def test_list_flagged_files_handles_null_categories():
-    fake_user = _make_row(id="u-3", name="Carol", email="carol@example.com", role="employee")
     fake_files = [
-        _make_row(
-            id="f-3",
-            path="docs/empty.pdf",
-            source_type="fileshare",
-            size_bytes=500,
-            last_modified=1715000000.0,
-            last_scanned_at=None,
-            n_findings=0,
-            categories=None,
-        ),
+        {
+            "file_id": "f-3",
+            "name": "docs/empty.pdf",
+            "google_created_at": None,
+            "last_seen_at": None,
+            "pii_category": None,
+        },
     ]
 
     with (
-        patch("app.main.store.get_user", return_value=fake_user),
-        patch("app.main.store.flagged_files_for_user", return_value=fake_files),
+        patch("app.main.owner_exists", return_value=True),
+        patch("app.main.flagged_files_for_owner", return_value=fake_files),
     ):
-        response = client.get("/users/u-3/files")
+        response = client.get("/users/carol@example.com/files")
 
     assert response.status_code == 200
     assert response.json()["files"][0]["finding_categories"] == []
@@ -203,35 +189,11 @@ def test_kpi_flagged_files_per_owner_endpoint():
 
 
 def test_drive_workflow_endpoint_queues_files_to_pubsub():
-    files = [
-        {"file_id": "f-1", "name": "alpha.pdf"},
-        {"file_id": "f-2", "name": "beta.txt"},
-    ]
-
     class FakeLister:
-        def list_files(self):
-            return iter(files)
+        def run(self):
+            return 2
 
-    class FakePublisher:
-        def __init__(self):
-            self.published = []
-
-        def publish(self, topic, data):
-            self.published.append(data)
-
-            class FakeFuture:
-                def result(self_):
-                    return None
-
-            return FakeFuture()
-
-    fake_publisher = FakePublisher()
-
-    with (
-        patch("app.main.GDriveLister", return_value=FakeLister()),
-        patch("app.main._publisher", fake_publisher),
-        patch.dict("os.environ", {"PUBSUB_TOPIC": "projects/test/topics/test"}),
-    ):
+    with patch("app.main.GDriveLister", return_value=FakeLister()):
         response = client.post("/workflows/drive/scan")
 
     assert response.status_code == 200
@@ -239,4 +201,3 @@ def test_drive_workflow_endpoint_queues_files_to_pubsub():
     assert body["files_queued"] == 2
     assert body["failed"] == 0
     assert body["status"] == "ok"
-    assert len(fake_publisher.published) == 2

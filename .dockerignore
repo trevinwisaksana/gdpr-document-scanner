@@ -19,5 +19,8 @@ build
 .junie/
 sample-data/
 tests/
-test_local.py
-test_pubsub.py
+scripts/
+docs/
+frontend/
+memory/
+description/
