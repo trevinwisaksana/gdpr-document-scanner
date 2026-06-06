@@ -11,6 +11,7 @@ Optional env vars:
   MAX_MESSAGES         — max concurrent messages being processed (default: 10)
 """
 
+import collections
 import json
 import logging
 import os
@@ -31,6 +32,11 @@ logger = logging.getLogger(__name__)
 
 FLUSH_BATCH_SIZE = 50
 FLUSH_INTERVAL = 0.5
+STATS_LOG_INTERVAL = 50
+
+_stage_counts: collections.Counter = collections.Counter()
+_stage_lock = threading.Lock()
+_stats_total = 0
 
 
 def _start_health_server() -> None:
@@ -120,7 +126,7 @@ def main() -> None:
 
     logger.info("connecting to database")
     pool = psycopg2.pool.ThreadedConnectionPool(
-        minconn=1, maxconn=5, dsn=database_url
+        minconn=1, maxconn=2, dsn=database_url
     )
     logger.info("database connection pool ready")
 
@@ -155,6 +161,14 @@ def main() -> None:
                     "  finding file_id=%s category=%s snippet=%r confidence=%s",
                     file_id, f["category"], f.get("snippet"), f.get("confidence"),
                 )
+
+            global _stats_total
+            with _stage_lock:
+                _stage_counts[result.stage] += 1
+                _stats_total += 1
+                if _stats_total % STATS_LOG_INTERVAL == 0:
+                    counts_str = " ".join(f"{s}={c}" for s, c in sorted(_stage_counts.items()))
+                    logger.info("detector_usage total=%d %s", _stats_total, counts_str)
 
             write_queue.put((message, status_flag, result.stage, pii_category, file_id))
 

@@ -1,0 +1,93 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: gdpr
+      POSTGRES_USER: gdpr
+      POSTGRES_PASSWORD: gdpr
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gdpr"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  pubsub-emulator:
+    image: gcr.io/google.com/cloudsdktool/cloud-sdk:emulators
+    command: gcloud beta emulators pubsub start --host-port=0.0.0.0:8085 --project=local-project
+    ports:
+      - "8085:8085"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8085/v1/projects/local-project/topics"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  pubsub-setup:
+    image: curlimages/curl:latest
+    depends_on:
+      pubsub-emulator:
+        condition: service_healthy
+    volumes:
+      - ./scripts/pubsub_setup.sh:/setup.sh
+    entrypoint: ["sh", "/setup.sh"]
+
+  extraction-consumer:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.consumer
+    environment:
+      PUBSUB_SUBSCRIPTION: projects/local-project/subscriptions/gdpr-extraction-sub
+      SCANNER_PUBSUB_TOPIC: projects/local-project/topics/gdpr-scanner
+      PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/credentials.json
+      PORT: 8082
+    volumes:
+      - ./credentials.json:/secrets/credentials.json:ro
+    depends_on:
+      pubsub-setup:
+        condition: service_completed_successfully
+
+  scanner-consumer:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.scanner
+    environment:
+      PUBSUB_SUBSCRIPTION: projects/local-project/subscriptions/gdpr-scanner-sub
+      DATABASE_URL: postgresql://gdpr:gdpr@postgres:5432/gdpr
+      PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
+      PORT: 8081
+      NER_SUBSCRIPTION_KEY: ${NER_SUBSCRIPTION_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-qwen/qwen3-8b}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pubsub-setup:
+        condition: service_completed_successfully
+
+  listing-job:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.listing
+    environment:
+      DATABASE_URL: postgresql://gdpr:gdpr@postgres:5432/gdpr
+      EXTRACTOR_PUBSUB_TOPIC: projects/local-project/topics/gdpr-extraction
+      PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/credentials.json
+    volumes:
+      - ./credentials.json:/secrets/credentials.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pubsub-setup:
+        condition: service_completed_successfully
+    restart: "no"
+
+volumes:
+  postgres_data:

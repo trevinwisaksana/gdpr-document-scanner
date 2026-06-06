@@ -1,0 +1,24 @@
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - build
+      - -f
+      - docker/Dockerfile.listing
+      - -t
+      - us-central1-docker.pkg.dev/summer-bond-461608-i5/cloud-run-source-deploy/gdpr-listing-job:$COMMIT_SHA
+      - .
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - push
+      - us-central1-docker.pkg.dev/summer-bond-461608-i5/cloud-run-source-deploy/gdpr-listing-job:$COMMIT_SHA
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - update
+      - gdpr-listing-job
+      - --image=us-central1-docker.pkg.dev/summer-bond-461608-i5/cloud-run-source-deploy/gdpr-listing-job:$COMMIT_SHA
+      - --region=us-central1
+images:
+  - us-central1-docker.pkg.dev/summer-bond-461608-i5/cloud-run-source-deploy/gdpr-listing-job:$COMMIT_SHA
