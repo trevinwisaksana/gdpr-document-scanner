@@ -4,3 +4,7 @@ google-auth>=2.28.0
 google-auth-httplib2>=0.2.0
 httplib2>=0.22.0
 requests>=2.31.0
+# Local PII detection — no API keys or network calls required
+presidio-analyzer>=2.2.354
+spacy>=3.7.0,<4.0.0
+click>=8.0.0

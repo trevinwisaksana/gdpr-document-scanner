@@ -69,17 +69,21 @@ def collect_files(dataset_dir: Path) -> tuple[list[Path], list[Path]]:
             continue
         if p.suffix.lower() not in {".txt", ".pdf", ".docx", ".xlsx", ".csv", ".pptx"}:
             continue
-        (clean if p.stem.startswith("internal_memo_") else pii).append(p)
+        stem = p.stem
+        if "noPII" in stem:
+            clean.append(p)
+        elif "PII" in stem:
+            pii.append(p)
     return pii, clean
 
 
 # ── detector runners ──────────────────────────────────────────────────────────
 
-def run_regex(text: str) -> list[dict]:
+def run_regex(text: str, file_name: str = "") -> list[dict]:
     return detect_pii(text)
 
 
-def run_regex_ner(text: str) -> list[dict]:
+def run_regex_ner(text: str, file_name: str = "") -> list[dict]:
     from app.detection.ner import ner_inference
     from app.process import _ner_to_findings
 
@@ -93,9 +97,9 @@ def run_regex_ner(text: str) -> list[dict]:
     return findings
 
 
-def run_full(text: str) -> list[dict]:
+def run_full(text: str, file_name: str = "") -> list[dict]:
     from app.process import scan_text
-    result = scan_text(text, "benchmark")
+    result = scan_text(text, "benchmark", file_name=file_name)
     return result.findings
 
 
@@ -124,7 +128,7 @@ def benchmark_detector(name: str, run_fn, pii_files: list[Path], clean_files: li
 
         t0 = time.perf_counter()
         try:
-            findings = run_fn(text)
+            findings = run_fn(text, file_name=path.name)
         except Exception as e:
             errors += 1
             continue
@@ -205,8 +209,8 @@ def collect_staging_files(sample: int = 0) -> tuple[list[dict], list[dict]]:
     all_files = list(lister.list_files())
     print(f"Found {len(all_files)} files in Drive.")
 
-    pii = [f for f in all_files if not Path(f["name"]).stem.startswith("internal_memo_")]
-    clean = [f for f in all_files if Path(f["name"]).stem.startswith("internal_memo_")]
+    pii = [f for f in all_files if "PII" in Path(f["name"]).stem and "noPII" not in Path(f["name"]).stem]
+    clean = [f for f in all_files if "noPII" in Path(f["name"]).stem]
 
     if sample and sample < len(pii):
         random.seed(99)
@@ -233,7 +237,7 @@ def benchmark_detector_staging(name: str, run_fn, pii_files: list[dict], clean_f
 
         t0 = time.perf_counter()
         try:
-            findings = run_fn(text)
+            findings = run_fn(text, file_name=f["name"])
         except Exception as e:
             errors += 1
             continue

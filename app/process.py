@@ -8,15 +8,15 @@ is invoked (stub — wire in your own logic).
 from __future__ import annotations
 
 import logging
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from app.extraction.reader import extract_text
-from app.detection.ner import ner_inference
+from app.detection.ner import ner_inference, CONFIDENCE_THRESHOLD as NER_CONFIDENCE_THRESHOLD
 from app.detection.llm_fallback import llm_detect_pii, llm_verify_findings
+from app.detection.classifier import classify_document
+from app.detection.profiles import profile_for
 from detectors.regex import (
     RegexDetectorConfig, detect_pii,
     NAME, EMAIL, PHONE, IP_ADDRESS,
@@ -28,6 +28,25 @@ logger = logging.getLogger(__name__)
 # The label (before the colon) is never PII — strip it so NER only sees values.
 _FORM_LABEL_RE = re.compile(r"^[^:\n]{1,40}:\s*", re.MULTILINE)
 
+# Maps PII category strings back to RegexDetectorConfig field names.
+# Used by the miss-logging hook to check whether a detector was disabled.
+_CATEGORY_TO_FLAG: dict[str, str] = {
+    EMAIL:              "emails",
+    PHONE:              "phones",
+    "fax":              "phones",
+    "username":         "usernames",
+    "signature":        "signatures",
+    "passport":         "id_documents",
+    "id_card":          "id_documents",
+    "drivers_license":  "id_documents",
+    IP_ADDRESS:         "ip_addresses",
+    "credit_card":      "credit_cards",
+    "iban":             "iban",
+    "ssn":              "ssn",
+    "date_of_birth":    "dob",
+    "home_address":     "emails",
+}
+
 
 def _strip_form_labels(text: str) -> str:
     """Remove 'Label: ' prefixes from structured form-field lines."""
@@ -35,14 +54,17 @@ def _strip_form_labels(text: str) -> str:
 
 
 # Maps Azure Language NER categories to the shared PII category schema.
-# Categories absent from this map are not considered GDPR-relevant PII.
 _NER_CATEGORY_MAP: dict[str, str] = {
-    "Person": NAME,
-    "PersonType": NAME,
-    "Email": EMAIL,
-    "PhoneNumber": PHONE,
-    "Address": "home_address",
-    "IPAddress": IP_ADDRESS,
+    "Person":         NAME,
+    "PersonType":     NAME,
+    "Email":          EMAIL,
+    "PhoneNumber":    PHONE,
+    "Address":        "home_address",
+    "IPAddress":      IP_ADDRESS,
+    # Presidio-specific types (not returned by Azure NER)
+    "SSN":            "ssn",
+    "Passport":       "passport",
+    "DriversLicense": "drivers_license",
 }
 
 
@@ -67,6 +89,7 @@ class ScanResult:
     findings: list[dict]
     stage: str = "regex"
     category: str | None = None
+    doc_type: str | None = None
 
     @property
     def has_pii(self) -> bool:
@@ -84,108 +107,170 @@ def _primary_category(findings: list[dict]) -> str | None:
     return best.get("category")
 
 
+def _log_profile_miss(
+    doc_type: str,
+    file_id: str,
+    effective_config: RegexDetectorConfig,
+    ner_findings: list[dict],
+) -> None:
+    """Log NER findings whose regex detector was disabled by the doc-type profile."""
+    for finding in ner_findings:
+        category = finding.get("category", "")
+        flag = _CATEGORY_TO_FLAG.get(category)
+        if flag is None:
+            continue
+        if not getattr(effective_config, flag, True):
+            logger.warning(
+                "profile_miss doc_type=%s missed_category=%s file_id=%s ner_confidence=%.2f",
+                doc_type, category, file_id,
+                finding.get("confidence") or 0.0,
+            )
+
+
 # ── use-case ──────────────────────────────────────────────────────────────────
 
-def scan_text(text: str, file_id: str, config: RegexDetectorConfig | None = None) -> ScanResult:
-    """Run the PII detector on already-extracted *text*."""
+def scan_text(
+    text: str,
+    file_id: str,
+    config: RegexDetectorConfig | None = None,
+    file_name: str = "",
+) -> ScanResult:
+    """Run the full PII detection pipeline on already-extracted *text*.
+
+    Stages (each is a fallback for the previous):
+      1. Regex       — fast, deterministic, document-type targeted
+      2. Azure NER   — high-confidence (≥0.85) kept; low-confidence → LLM verify
+      3. LLM verify  — confirms low-confidence NER candidates via OpenRouter
+      4. LLM detect  — full scan when regex + NER both find nothing
+
+    Args:
+        text:      Extracted plain text to scan.
+        file_id:   File identifier used for logging and the returned ScanResult.
+        config:    Explicit RegexDetectorConfig; overrides document-type routing.
+        file_name: Original filename used by the document classifier.
+    """
     import time
-    skip_llm = os.environ.get("SKIP_LLM", "").lower() in ("1", "true")
     t_total = time.perf_counter()
     timings: dict[str, float] = {}
     stage = "regex"
 
+    # ── Stage 0: document classification + profile routing ────────────────────
     t0 = time.perf_counter()
-    findings = detect_pii(text, config)
-    timings["regex_ms"] = round((time.perf_counter() - t0) * 1000, 1)
-    category = _primary_category(findings)
+    classification = classify_document(text, file_name)
+    timings["classify_ms"] = round((time.perf_counter() - t0) * 1000, 1)
 
-    if not findings:
+    effective_config = config
+    if effective_config is None and classification.doc_type != "generic":
+        effective_config = profile_for(classification.doc_type)
+
+    logger.info(
+        "doc_classify file_id=%s doc_type=%s confidence=%.2f",
+        file_id, classification.doc_type, classification.confidence,
+    )
+
+    # ── Stage 1: Regex ────────────────────────────────────────────────────────
+    t0 = time.perf_counter()
+    findings = detect_pii(text, effective_config)
+    timings["regex_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+
+    if findings:
+        stage = "regex"
+    else:
+        # ── Stage 2: Azure NER ────────────────────────────────────────────────
         try:
             t0 = time.perf_counter()
             ner_entities = ner_inference(_strip_form_labels(text))
-            ner_findings = _ner_to_findings(ner_entities)
             timings["ner_ms"] = round((time.perf_counter() - t0) * 1000, 1)
-            stage = "ner"
 
-            if skip_llm:
-                findings = ner_findings
-            else:
-                high_conf = [f for f in ner_findings if (f.get("confidence") or 0) >= 0.9]
-                low_conf  = [f for f in ner_findings if (f.get("confidence") or 0) <  0.9]
+            high_conf = [e for e in ner_entities if (e.get("confidence") or 0) >= NER_CONFIDENCE_THRESHOLD]
+            low_conf  = [e for e in ner_entities if (e.get("confidence") or 0) <  NER_CONFIDENCE_THRESHOLD]
 
-                if low_conf:
+            ner_findings = _ner_to_findings(high_conf)
+
+            # ── Stage 3: LLM verify (low-confidence NER candidates) ───────────
+            if low_conf:
+                low_conf_findings = _ner_to_findings(low_conf)
+                try:
                     t0 = time.perf_counter()
-                    verified = llm_verify_findings(text, low_conf)
+                    verified = llm_verify_findings(text, low_conf_findings)
                     timings["llm_verify_ms"] = round((time.perf_counter() - t0) * 1000, 1)
-                    stage = "ner+llm_verify"
-                else:
-                    verified = []
+                    ner_findings.extend(verified)
+                except Exception:
+                    logger.warning("LLM verify failed — keeping unverified NER candidates", extra={"file": file_id})
+                    ner_findings.extend(low_conf_findings)
 
-                findings = high_conf + verified
+            if ner_findings:
+                stage = "ner"
+                findings = ner_findings
 
-            category = _primary_category(findings)
+                if effective_config is not None and classification.doc_type != "generic":
+                    _log_profile_miss(classification.doc_type, file_id, effective_config, ner_findings)
+
         except Exception:
             logger.warning("NER fallback failed", extra={"file": file_id})
 
-    if not findings and not skip_llm:
-        t0 = time.perf_counter()
-        findings = llm_detect_pii(text)
-        timings["llm_detect_ms"] = round((time.perf_counter() - t0) * 1000, 1)
-        stage = "llm_detect"
-        category = _primary_category(findings)
+        # ── Stage 4: LLM detect (nothing found yet) ───────────────────────────
+        if not findings:
+            try:
+                t0 = time.perf_counter()
+                llm_findings = llm_detect_pii(text)
+                timings["llm_detect_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+                if llm_findings:
+                    stage = "llm_detect"
+                    findings = llm_findings
+            except Exception:
+                logger.warning("LLM detect failed", extra={"file": file_id})
 
+    category = _primary_category(findings)
     timings["total_ms"] = round((time.perf_counter() - t_total) * 1000, 1)
 
     logger.info(
-        "scan_metrics file_id=%s stage=%s findings=%d %s",
-        file_id, stage, len(findings),
+        "scan_metrics file_id=%s stage=%s findings=%d doc_type=%s %s",
+        file_id, stage, len(findings), classification.doc_type,
         " ".join(f"{k}={v}" for k, v in timings.items()),
     )
 
-    return ScanResult(file_path=file_id, findings=findings, stage=stage, category=category)
+    return ScanResult(
+        file_path=file_id,
+        findings=findings,
+        stage=stage,
+        category=category,
+        doc_type=classification.doc_type,
+    )
 
 
 def scan_document(file_path: str | Path, config: RegexDetectorConfig | None = None) -> ScanResult:
     """Extract text from *file_path* then scan it."""
     text = extract_text(file_path)
-    return scan_text(text, str(file_path), config)
+    return scan_text(text, str(file_path), config, file_name=Path(file_path).name)
 
 
 # ── downstream handlers ───────────────────────────────────────────────────────
 
 def handle_pii_found(result: ScanResult) -> None:
-    """Called when *result* contains one or more PII findings."""
     logger.info(
         "PII detected",
         extra={"file": result.file_path, "finding_count": len(result.findings)},
     )
-    # TODO: persist findings, notify data owner, flag file for review, etc.
 
 
 def handle_no_pii(result: ScanResult) -> None:
-    """Called when *result* contains no PII findings (boilerplate — wire up as needed)."""
     logger.info("No PII found", extra={"file": result.file_path})
-    # TODO: mark file as clean, update audit log, etc.
 
 
 # ── orchestration ─────────────────────────────────────────────────────────────
 
 def process_file(file_path: str | Path, config: RegexDetectorConfig | None = None) -> ScanResult:
-    """Scan a single file and route to the appropriate handler."""
     result = scan_document(file_path, config)
-
     if result.has_pii:
         handle_pii_found(result)
     else:
         handle_no_pii(result)
-
     return result
 
 
 def run(file_paths: list[str | Path], config: RegexDetectorConfig | None = None) -> list[ScanResult]:
-    """Cron job entry point — iterate over *file_paths* and process each one."""
     results: list[ScanResult] = []
-
     for path in file_paths:
         try:
             results.append(process_file(path, config))

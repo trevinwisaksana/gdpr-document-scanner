@@ -1,7 +1,10 @@
 # Benchmark Local
 
-Spin up the full pipeline locally via docker-compose, run the lister against staging Google Drive,
-and tail logs to observe extraction timing and detector stage usage in real time.
+When this skill is invoked, immediately begin executing every step below in order without waiting for further instructions.
+
+Spin up the full pipeline locally via docker-compose with 20 extraction and 20 scanner instances,
+run the lister against staging Google Drive, and tail logs to observe timing and detector stage
+usage in real time.
 
 ## What you'll see in the logs
 
@@ -29,38 +32,33 @@ docker compose wait pubsub-setup
 
 ### 3. Clean the database
 
-Truncate `drive_files` so the run starts from a clean state:
-
 ```bash
 docker compose exec postgres psql -U gdpr -d gdpr -c "TRUNCATE TABLE drive_files;"
 ```
 
-### 4. Start consumers
+### 4. Start 20 extraction and 20 scanner consumers
 
-Forward NER and LLM keys from your local environment so the full detection pipeline runs.
-Without them only the regex stage will fire.
+Forward NER and LLM keys so the full detection pipeline runs.
 
 ```bash
-docker compose run -d --name extraction-consumer \
-  -e NER_SUBSCRIPTION_KEY="${NER_SUBSCRIPTION_KEY:-}" \
-  -e OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}" \
-  -e OPENROUTER_MODEL="${OPENROUTER_MODEL:-qwen/qwen3-8b}" \
-  extraction-consumer
-
-docker compose run -d --name scanner-consumer \
-  -e NER_SUBSCRIPTION_KEY="${NER_SUBSCRIPTION_KEY:-}" \
-  -e OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}" \
-  -e OPENROUTER_MODEL="${OPENROUTER_MODEL:-qwen/qwen3-8b}" \
-  scanner-consumer
+source .env
+NER_SUBSCRIPTION_KEY="${NER_SUBSCRIPTION_KEY:-}" \
+OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}" \
+OPENROUTER_MODEL="${OPENROUTER_MODEL:-qwen/qwen3-8b}" \
+OPENROUTER_BASE_URL="${OPENROUTER_BASE_URL:-}" \
+docker compose up -d \
+  --scale extraction-consumer=20 \
+  --scale scanner-consumer=20 \
+  extraction-consumer scanner-consumer
 ```
 
-### 5. Run the lister
-
-Lists all files from Google Drive, upserts them into local Postgres, and publishes unchecked
-files to the extractor Pub/Sub topic.
+### 5. Run the lister and time it
 
 ```bash
+source .env
+START=$(date +%s)
 docker compose run --rm listing-job
+echo "Lister done in $(($(date +%s) - START))s"
 ```
 
 ### 6. Tail logs
@@ -69,11 +67,9 @@ docker compose run --rm listing-job
 docker compose logs -f extraction-consumer scanner-consumer
 ```
 
-Watch for `extraction_ms` per file and `detector_usage` every 50 files. Press Ctrl+C when done.
+Watch for `extraction_ms` per file and `detector_usage` every 50 files. Ctrl+C when done.
 
-### 7. Show final stage breakdown
-
-After the pipeline has finished processing, query local Postgres for the stage summary:
+### 7. Show final stage breakdown + total time
 
 ```bash
 docker compose exec postgres psql -U gdpr -d gdpr -c "
@@ -93,5 +89,3 @@ ORDER BY files DESC;
 ```bash
 docker compose down -v
 ```
-
-The `-v` flag wipes the local Postgres volume so the next run starts clean.

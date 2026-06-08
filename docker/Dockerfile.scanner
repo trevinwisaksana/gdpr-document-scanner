@@ -5,7 +5,9 @@ WORKDIR /app
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 
 COPY docker/requirements.scanner.txt .
-RUN pip install --no-cache-dir -r requirements.scanner.txt
+RUN pip install --no-cache-dir -r requirements.scanner.txt && \
+    pip install --no-cache-dir \
+    "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl"
 
 COPY app/ app/
 COPY detectors/ detectors/

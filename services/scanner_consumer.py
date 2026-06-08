@@ -56,11 +56,14 @@ _ENSURE_SCHEMA = """
 CREATE INDEX IF NOT EXISTS idx_drive_files_owner ON drive_files (owner);
 ALTER TABLE drive_files ADD COLUMN IF NOT EXISTS detection_stage TEXT;
 ALTER TABLE drive_files ADD COLUMN IF NOT EXISTS pii_category TEXT;
+ALTER TABLE drive_files ADD COLUMN IF NOT EXISTS doc_type TEXT;
 """
 
 _BATCH_UPDATE_FLAG = """
-UPDATE drive_files SET status_flag = v.flag, detection_stage = v.stage, pii_category = v.category, last_seen_at = NOW()
-FROM (VALUES %s) AS v(flag, stage, category, file_id)
+UPDATE drive_files
+SET status_flag = v.flag, detection_stage = v.stage, pii_category = v.category,
+    doc_type = v.doc_type, last_seen_at = NOW()
+FROM (VALUES %s) AS v(flag, stage, category, doc_type, file_id)
 WHERE drive_files.file_id = v.file_id
 """
 
@@ -98,7 +101,7 @@ def _flusher(pool: psycopg2.pool.ThreadedConnectionPool, write_queue: queue.Queu
             continue
 
         messages = [item[0] for item in batch]
-        values = [(item[1], item[2], item[3], item[4]) for item in batch]
+        values = [(item[1], item[2], item[3], item[4], item[5]) for item in batch]
 
         logger.info("flushing batch size=%d", len(batch))
         conn = pool.getconn()
@@ -148,13 +151,14 @@ def main() -> None:
 
             logger.info("scanning file_id=%s name=%r chars=%d", file_id, file_name, len(text))
 
-            result = scan_text(text, file_id)
+            result = scan_text(text, file_id, file_name=file_name)
             status_flag = "flagged" if result.has_pii else "not_flagged"
             pii_category = result.category
 
             logger.info(
-                "scan complete file_id=%s name=%r has_pii=%s category=%s findings=%d stage=%s",
-                file_id, file_name, result.has_pii, pii_category, len(result.findings), result.stage,
+                "scan complete file_id=%s name=%r has_pii=%s category=%s doc_type=%s findings=%d stage=%s",
+                file_id, file_name, result.has_pii, pii_category, result.doc_type,
+                len(result.findings), result.stage,
             )
             for f in result.findings:
                 logger.info(
@@ -170,7 +174,7 @@ def main() -> None:
                     counts_str = " ".join(f"{s}={c}" for s, c in sorted(_stage_counts.items()))
                     logger.info("detector_usage total=%d %s", _stats_total, counts_str)
 
-            write_queue.put((message, status_flag, result.stage, pii_category, file_id))
+            write_queue.put((message, status_flag, result.stage, pii_category, result.doc_type, file_id))
 
         except Exception as exc:
             logger.error(
